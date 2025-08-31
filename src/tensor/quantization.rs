@@ -3,6 +3,8 @@
 use crate::format::types::GGUFTensorType as TensorType;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
+use std::{cmp, mem};
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
@@ -10,6 +12,23 @@ extern crate alloc;
 use alloc::{vec, vec::Vec};
 #[cfg(feature = "std")]
 use std::vec::Vec;
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::{cmp, fmt, mem};
+#[cfg(not(feature = "std"))]
+use libm::powf;
+
+// Helper function for powf that works in both std and no_std
+#[cfg(feature = "std")]
+fn powf_helper(base: f32, exp: f32) -> f32 {
+    base.powf(exp)
+}
+
+#[cfg(not(feature = "std"))]
+fn powf_helper(base: f32, exp: f32) -> f32 {
+    powf(base, exp)
+}
 
 /// Block-based quantization format structures
 pub mod blocks {
@@ -213,7 +232,10 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q4_0Block>(),
+                #[cfg(feature = "std")]
+                block_size_bytes: mem::size_of::<Q4_0Block>(),
+                #[cfg(not(feature = "std"))]
+                block_size_bytes: mem::size_of::<Q4_0Block>(),
             },
             TensorType::Q4_1 => Self {
                 tensor_type,
@@ -222,7 +244,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: true,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q4_1Block>(),
+                block_size_bytes: mem::size_of::<Q4_1Block>(),
             },
             TensorType::Q5_0 => Self {
                 tensor_type,
@@ -231,7 +253,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: true,
-                block_size_bytes: std::mem::size_of::<Q5_0Block>(),
+                block_size_bytes: mem::size_of::<Q5_0Block>(),
             },
             TensorType::Q5_1 => Self {
                 tensor_type,
@@ -240,7 +262,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: true,
                 has_high_bits: true,
-                block_size_bytes: std::mem::size_of::<Q5_1Block>(),
+                block_size_bytes: mem::size_of::<Q5_1Block>(),
             },
             TensorType::Q8_0 => Self {
                 tensor_type,
@@ -249,7 +271,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q8_0Block>(),
+                block_size_bytes: mem::size_of::<Q8_0Block>(),
             },
             TensorType::Q8_1 => Self {
                 tensor_type,
@@ -258,7 +280,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q8_1Block>(),
+                block_size_bytes: mem::size_of::<Q8_1Block>(),
             },
             TensorType::Q2_K => Self {
                 tensor_type,
@@ -267,7 +289,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q2_KBlock>(),
+                block_size_bytes: mem::size_of::<Q2_KBlock>(),
             },
             TensorType::Q3_K => Self {
                 tensor_type,
@@ -276,7 +298,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: true,
-                block_size_bytes: std::mem::size_of::<Q3_KBlock>(),
+                block_size_bytes: mem::size_of::<Q3_KBlock>(),
             },
             TensorType::Q4_K => Self {
                 tensor_type,
@@ -285,7 +307,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q4_KBlock>(),
+                block_size_bytes: mem::size_of::<Q4_KBlock>(),
             },
             TensorType::Q5_K => Self {
                 tensor_type,
@@ -294,7 +316,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: true,
-                block_size_bytes: std::mem::size_of::<Q5_KBlock>(),
+                block_size_bytes: mem::size_of::<Q5_KBlock>(),
             },
             TensorType::Q6_K => Self {
                 tensor_type,
@@ -303,7 +325,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q6_KBlock>(),
+                block_size_bytes: mem::size_of::<Q6_KBlock>(),
             },
             TensorType::Q8_K => Self {
                 tensor_type,
@@ -312,7 +334,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<Q8_KBlock>(),
+                block_size_bytes: mem::size_of::<Q8_KBlock>(),
             },
             // IQ types - these are approximate/placeholder values
             TensorType::IQ1_S | TensorType::IQ1_M => Self {
@@ -331,7 +353,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<IQ2_XXSBlock>(),
+                block_size_bytes: mem::size_of::<IQ2_XXSBlock>(),
             },
             TensorType::IQ3_XXS | TensorType::IQ3_S => Self {
                 tensor_type,
@@ -340,7 +362,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<IQ3_XXSBlock>(),
+                block_size_bytes: mem::size_of::<IQ3_XXSBlock>(),
             },
             TensorType::IQ4_NL | TensorType::IQ4_XS | TensorType::IQ4_UNI => Self {
                 tensor_type,
@@ -349,7 +371,7 @@ impl QuantizationParams {
                 has_scales: true,
                 has_min: false,
                 has_high_bits: false,
-                block_size_bytes: std::mem::size_of::<IQ4_NLBlock>(),
+                block_size_bytes: mem::size_of::<IQ4_NLBlock>(),
             },
             // Non-quantized types
             _ => Self {
@@ -417,7 +439,7 @@ impl QuantizationParams {
             0.0
         } else {
             // Simple estimate: error increases exponentially as bits decrease
-            2.0_f32.powf(8.0 - self.bits_per_weight)
+            powf_helper(2.0, 8.0 - self.bits_per_weight)
         }
     }
 }
@@ -489,7 +511,7 @@ impl QuantizationUtils {
     }
 
     /// Compare two quantization formats
-    pub fn compare_formats(type_a: TensorType, type_b: TensorType) -> std::cmp::Ordering {
+    pub fn compare_formats(type_a: TensorType, type_b: TensorType) -> cmp::Ordering {
         let params_a = QuantizationParams::for_type(type_a);
         let params_b = QuantizationParams::for_type(type_b);
 
@@ -497,7 +519,7 @@ impl QuantizationUtils {
         params_a
             .bits_per_weight
             .partial_cmp(&params_b.bits_per_weight)
-            .unwrap_or(std::cmp::Ordering::Equal)
+            .unwrap_or(cmp::Ordering::Equal)
     }
 
     /// Get the most similar quantization to a target bit rate
@@ -554,6 +576,7 @@ impl QuantizationUtils {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for QuantizationParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -563,6 +586,20 @@ impl std::fmt::Display for QuantizationParams {
             self.block_size,
             self.bits_per_weight,
             self.block_size_bytes
+        )
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for QuantizationParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "QuantizationParams {{ type: {:?}, block_size: {}, block_size_bytes: {}, bits_per_weight: {} }}",
+            self.tensor_type,
+            self.block_size,
+            self.block_size_bytes,
+            self.bits_per_weight
         )
     }
 }
@@ -652,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_format_comparison() {
-        use std::cmp::Ordering;
+        use cmp::Ordering;
 
         let cmp = QuantizationUtils::compare_formats(TensorType::Q8_0, TensorType::Q4_0);
         assert_eq!(cmp, Ordering::Greater); // Q8_0 has more bits, so it's "greater"
@@ -694,11 +731,11 @@ mod tests {
         use blocks::*;
 
         // Verify expected block sizes for common formats
-        assert_eq!(std::mem::size_of::<Q4_0Block>(), 18);
-        assert_eq!(std::mem::size_of::<Q4_1Block>(), 20);
-        assert_eq!(std::mem::size_of::<Q5_0Block>(), 22);
-        assert_eq!(std::mem::size_of::<Q5_1Block>(), 24);
-        assert_eq!(std::mem::size_of::<Q8_0Block>(), 34);
+        assert_eq!(mem::size_of::<Q4_0Block>(), 18);
+        assert_eq!(mem::size_of::<Q4_1Block>(), 20);
+        assert_eq!(mem::size_of::<Q5_0Block>(), 22);
+        assert_eq!(mem::size_of::<Q5_1Block>(), 24);
+        assert_eq!(mem::size_of::<Q8_0Block>(), 34);
     }
 
     #[test]

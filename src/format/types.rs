@@ -9,6 +9,10 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::format;
 
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::fmt;
+
 /// Type identifiers used in the GGUF format for metadata values
 #[repr(u32)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
@@ -410,15 +414,78 @@ impl GGUFTensorType {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for GGUFValueType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for GGUFValueType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GGUFValueType::U8 => write!(f, "U8"),
+            GGUFValueType::I8 => write!(f, "I8"),
+            GGUFValueType::U16 => write!(f, "U16"),
+            GGUFValueType::I16 => write!(f, "I16"),
+            GGUFValueType::U32 => write!(f, "U32"),
+            GGUFValueType::I32 => write!(f, "I32"),
+            GGUFValueType::F32 => write!(f, "F32"),
+            GGUFValueType::Bool => write!(f, "Bool"),
+            GGUFValueType::String => write!(f, "String"),
+            GGUFValueType::Array => write!(f, "Array"),
+            GGUFValueType::U64 => write!(f, "U64"),
+            GGUFValueType::I64 => write!(f, "I64"),
+            GGUFValueType::F64 => write!(f, "F64"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for GGUFTensorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.name())
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for GGUFTensorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            GGUFTensorType::F32 => write!(f, "F32"),
+            GGUFTensorType::F16 => write!(f, "F16"),
+            GGUFTensorType::Q4_0 => write!(f, "Q4_0"),
+            GGUFTensorType::Q4_1 => write!(f, "Q4_1"),
+            GGUFTensorType::Q5_0 => write!(f, "Q5_0"),
+            GGUFTensorType::Q5_1 => write!(f, "Q5_1"),
+            GGUFTensorType::Q8_0 => write!(f, "Q8_0"),
+            GGUFTensorType::Q8_1 => write!(f, "Q8_1"),
+            GGUFTensorType::Q2_K => write!(f, "Q2_K"),
+            GGUFTensorType::Q3_K => write!(f, "Q3_K"),
+            GGUFTensorType::Q4_K => write!(f, "Q4_K"),
+            GGUFTensorType::Q5_K => write!(f, "Q5_K"),
+            GGUFTensorType::Q6_K => write!(f, "Q6_K"),
+            GGUFTensorType::Q8_K => write!(f, "Q8_K"),
+            GGUFTensorType::I8 => write!(f, "I8"),
+            GGUFTensorType::I16 => write!(f, "I16"),
+            GGUFTensorType::I32 => write!(f, "I32"),
+            GGUFTensorType::I64 => write!(f, "I64"),
+            GGUFTensorType::F64 => write!(f, "F64"),
+            GGUFTensorType::IQ2_XXS => write!(f, "IQ2_XXS"),
+            GGUFTensorType::IQ2_XS => write!(f, "IQ2_XS"),
+            GGUFTensorType::IQ3_XXS => write!(f, "IQ3_XXS"),
+            GGUFTensorType::IQ1_S => write!(f, "IQ1_S"),
+            GGUFTensorType::IQ4_NL => write!(f, "IQ4_NL"),
+            GGUFTensorType::IQ3_S => write!(f, "IQ3_S"),
+            GGUFTensorType::IQ2_S => write!(f, "IQ2_S"),
+            GGUFTensorType::IQ4_XS => write!(f, "IQ4_XS"),
+            GGUFTensorType::Q4_2 => write!(f, "Q4_2"),
+            GGUFTensorType::Q4_3 => write!(f, "Q4_3"),
+            GGUFTensorType::IQ1_M => write!(f, "IQ1_M"),
+            GGUFTensorType::BF16 => write!(f, "BF16"),
+            GGUFTensorType::IQ4_UNI => write!(f, "IQ4_UNI"),
+        }
     }
 }
 

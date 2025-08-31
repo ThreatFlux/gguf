@@ -12,7 +12,11 @@ use std::io::{Read, Write};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::{String, ToString}, vec::Vec};
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::fmt;
 
 /// GGUF file header structure
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -128,6 +132,7 @@ impl GGUFHeader {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for GGUFHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -282,8 +287,31 @@ impl TensorInfo {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for GGUFHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "GGUF Header {{ magic: 0x{:08X}, version: {}, tensors: {}, metadata: {} }}",
+            self.magic, self.version, self.tensor_count, self.metadata_kv_count
+        )
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TensorInfo {{ name: '{}', shape: {:?}, type: {}, offset: {} }}",
+            self.name, self.dimensions, self.tensor_type, self.offset
+        )
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "TensorInfo {{ name: '{}', shape: {:?}, type: {}, offset: {} }}",

@@ -13,7 +13,35 @@ use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{format, string::{String, ToString}, vec::Vec};
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::fmt;
+#[cfg(not(feature = "std"))]
+use libm::{powf, sqrtf};
+
+// Helper function for exponentiation that works in both std and no_std
+#[cfg(feature = "std")]
+fn powi_f32(base: f32, exp: i32) -> f32 {
+    base.powi(exp)
+}
+
+#[cfg(not(feature = "std"))]
+fn powi_f32(base: f32, exp: i32) -> f32 {
+    powf(base, exp as f32)
+}
+
+// Helper function for sqrt that works in both std and no_std
+#[cfg(feature = "std")]
+fn sqrt_f32(x: f32) -> f32 {
+    x.sqrt()
+}
+
+#[cfg(not(feature = "std"))]
+fn sqrt_f32(x: f32) -> f32 {
+    sqrtf(x)
+}
 
 /// Complete information about a tensor
 #[derive(Debug, Clone, PartialEq)]
@@ -281,9 +309,9 @@ impl TensorInfo {
         let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let mean = values.iter().sum::<f32>() / values.len() as f32;
 
-        let variance =
-            values.iter().map(|&x| (x - mean).powi(2)).sum::<f32>() / values.len() as f32;
-        let std_dev = variance.sqrt();
+        let variance = 
+            values.iter().map(|&x| powi_f32(x - mean, 2)).sum::<f32>() / values.len() as f32;
+        let std_dev = sqrt_f32(variance);
 
         let zero_count = values.iter().filter(|&&x| x == 0.0).count() as u64;
 
@@ -428,12 +456,21 @@ impl TensorMetadata {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.summary())
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for MemoryLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -444,6 +481,18 @@ impl std::fmt::Display for MemoryLayout {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for MemoryLayout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemoryLayout::RowMajor => write!(f, "RowMajor"),
+            MemoryLayout::ColumnMajor => write!(f, "ColumnMajor"),
+            MemoryLayout::Custom => write!(f, "Custom"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -454,6 +503,18 @@ impl std::fmt::Display for TensorLayout {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorLayout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TensorLayout {{ memory: {}, contiguous: {}, alignment: {} }}",
+            self.memory_layout, self.is_contiguous, self.alignment
+        )
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorStats {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Stats(")?;
@@ -477,6 +538,17 @@ impl std::fmt::Display for TensorStats {
         }
 
         write!(f, "{})", parts.join(", "))
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorStats {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TensorStats {{ min: {:?}, max: {:?}, mean: {:?} }}",
+            self.min_value, self.max_value, self.mean_value
+        )
     }
 }
 

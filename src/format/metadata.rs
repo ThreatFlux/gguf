@@ -21,9 +21,13 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::{String, ToString}, vec::Vec};
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::{fmt, slice};
 
 /// A metadata value in a GGUF file
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
@@ -319,7 +323,13 @@ impl MetadataArray {
     }
 
     /// Iterate over the values
+    #[cfg(feature = "std")]
     pub fn iter(&self) -> std::slice::Iter<MetadataValue> {
+        self.values.iter()
+    }
+
+    #[cfg(not(feature = "std"))]
+    pub fn iter(&self) -> slice::Iter<MetadataValue> {
         self.values.iter()
     }
 }
@@ -475,9 +485,38 @@ impl Metadata {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for MetadataValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.to_string_representation())
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for MetadataValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MetadataValue::U8(v) => write!(f, "{}", v),
+            MetadataValue::I8(v) => write!(f, "{}", v),
+            MetadataValue::U16(v) => write!(f, "{}", v),
+            MetadataValue::I16(v) => write!(f, "{}", v),
+            MetadataValue::U32(v) => write!(f, "{}", v),
+            MetadataValue::I32(v) => write!(f, "{}", v),
+            MetadataValue::F32(v) => write!(f, "{}", v),
+            MetadataValue::Bool(v) => write!(f, "{}", v),
+            MetadataValue::String(v) => write!(f, "\"{}\"", v),
+            MetadataValue::Array(arr) => {
+                write!(f, "[")?;
+                for (i, value) in arr.iter().enumerate() {
+                    if i > 0 { write!(f, ", ")?; }
+                    write!(f, "{}", value)?;
+                }
+                write!(f, "]")
+            }
+            MetadataValue::U64(v) => write!(f, "{}", v),
+            MetadataValue::I64(v) => write!(f, "{}", v),
+            MetadataValue::F64(v) => write!(f, "{}", v),
+        }
     }
 }
 

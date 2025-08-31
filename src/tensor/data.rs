@@ -9,7 +9,11 @@ use std::sync::Arc;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, sync::Arc, vec, vec::Vec};
+use alloc::{format, string::{String, ToString}, sync::Arc, vec, vec::Vec};
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::{fmt, mem};
 
 /// Container for tensor data with different storage backends
 #[derive(Debug, Clone)]
@@ -199,7 +203,14 @@ impl TensorData {
 
     /// Check if the data is properly aligned
     pub fn is_aligned(&self) -> bool {
-        self.is_aligned_to(std::mem::align_of::<u64>())
+        #[cfg(feature = "std")]
+        {
+            self.is_aligned_to(std::mem::align_of::<u64>())
+        }
+        #[cfg(not(feature = "std"))]
+        {
+            self.is_aligned_to(mem::align_of::<u64>())
+        }
     }
 
     /// Check if the data is aligned to a specific boundary
@@ -407,6 +418,7 @@ impl PartialEq for TensorData {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -419,6 +431,21 @@ impl std::fmt::Display for TensorData {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TensorData::Owned(data) => write!(f, "Owned({} bytes)", data.len()),
+            TensorData::Borrowed(data) => write!(f, "Borrowed({} bytes)", data.len()),
+            TensorData::Shared(data) => write!(f, "Shared({} bytes)", data.len()),
+            TensorData::Empty => write!(f, "Empty"),
+            #[cfg(feature = "mmap")]
+            TensorData::Mapped { mmap, .. } => write!(f, "Mapped({} bytes)", mmap.len()),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorStorageType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -431,12 +458,37 @@ impl std::fmt::Display for TensorStorageType {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorStorageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TensorStorageType::Owned => write!(f, "Owned"),
+            TensorStorageType::Borrowed => write!(f, "Borrowed"),
+            TensorStorageType::Shared => write!(f, "Shared"),
+            TensorStorageType::Mapped => write!(f, "Mapped"),
+            TensorStorageType::Empty => write!(f, "Empty"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorDataInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "TensorDataInfo {{ type: {}, size: {} bytes, aligned: {} }}",
             self.storage_type, self.size_bytes, self.is_aligned
+        )
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorDataInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "TensorDataInfo {{ storage: {}, size: {} bytes, alignment: {:?} }}",
+            self.storage_type, self.size_bytes, self.alignment
         )
     }
 }

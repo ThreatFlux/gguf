@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{string::String, vec, vec::Vec};
+use alloc::{string::{String, ToString}, vec, vec::Vec};
 #[cfg(not(feature = "std"))]
-use core::cmp::Ordering;
+use core::{cmp::Ordering, fmt};
 
 pub use crate::format::types::GGUFTensorType as TensorType;
 
@@ -131,8 +131,23 @@ impl TensorTypeInfo {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorTypeInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} ({:.1} bits/weight, {}x compression, {:?})",
+            self.name,
+            self.bits_per_weight,
+            self.compression_ratio(),
+            self.quantization_category
+        )
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorTypeInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "{} ({:.1} bits/weight, {}x compression, {:?})",

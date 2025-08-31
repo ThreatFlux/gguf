@@ -7,7 +7,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, vec, vec::Vec};
+use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+
+// Import core modules for no_std compatibility
+#[cfg(not(feature = "std"))]
+use core::{fmt, ops};
 
 /// Represents the shape of a tensor
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
@@ -314,6 +318,7 @@ impl TensorShape {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for TensorShape {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.shape_string())
@@ -338,6 +343,16 @@ impl AsRef<[u64]> for TensorShape {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl fmt::Display for TensorShape {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}]", 
+            self.dimensions.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", ")
+        )
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::ops::Index<usize> for TensorShape {
     type Output = u64;
 
@@ -346,7 +361,24 @@ impl std::ops::Index<usize> for TensorShape {
     }
 }
 
+#[cfg(not(feature = "std"))]
+impl ops::Index<usize> for TensorShape {
+    type Output = u64;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.dimensions[index]
+    }
+}
+
+#[cfg(feature = "std")]
 impl std::ops::IndexMut<usize> for TensorShape {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.dimensions[index]
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl ops::IndexMut<usize> for TensorShape {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.dimensions[index]
     }
