@@ -12,7 +12,11 @@ use std::io::{Read, Write};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]

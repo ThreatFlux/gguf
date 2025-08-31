@@ -6,7 +6,11 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{string::{String, ToString}, vec, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 #[cfg(not(feature = "std"))]
 use core::{cmp::Ordering, fmt};
 

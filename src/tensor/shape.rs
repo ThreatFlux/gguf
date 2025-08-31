@@ -7,7 +7,12 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]
@@ -346,7 +351,9 @@ impl AsRef<[u64]> for TensorShape {
 #[cfg(not(feature = "std"))]
 impl fmt::Display for TensorShape {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[{}]", 
+        write!(
+            f,
+            "[{}]",
             self.dimensions.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(", ")
         )
     }

@@ -13,7 +13,11 @@ use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::{String, ToString}, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]
@@ -309,7 +313,7 @@ impl TensorInfo {
         let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
         let mean = values.iter().sum::<f32>() / values.len() as f32;
 
-        let variance = 
+        let variance =
             values.iter().map(|&x| powi_f32(x - mean, 2)).sum::<f32>() / values.len() as f32;
         let std_dev = sqrt_f32(variance);
 

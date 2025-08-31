@@ -21,7 +21,12 @@ use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::{String, ToString}, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 #[cfg(not(feature = "std"))]
 use hashbrown::HashMap;
 
@@ -508,7 +513,9 @@ impl fmt::Display for MetadataValue {
             MetadataValue::Array(arr) => {
                 write!(f, "[")?;
                 for (i, value) in arr.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", value)?;
                 }
                 write!(f, "]")

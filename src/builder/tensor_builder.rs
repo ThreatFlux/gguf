@@ -21,9 +21,7 @@ pub struct TensorCollectionBuilder {
 impl TensorCollectionBuilder {
     /// Create a new tensor collection builder
     pub fn new() -> Self {
-        Self {
-            tensors: HashMap::new(),
-        }
+        Self { tensors: HashMap::new() }
     }
 
     /// Add a tensor
