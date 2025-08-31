@@ -215,9 +215,15 @@ impl TensorInfo {
 
     /// Calculate tensor layout information
     pub fn calculate_layout(&self) -> TensorLayout {
+        let element_strides = self.shape.calculate_strides();
+        let byte_strides = element_strides
+            .iter()
+            .map(|&s| s * self.tensor_type.element_size() as u64)
+            .collect();
+
         TensorLayout {
             memory_layout: MemoryLayout::RowMajor, // Default to row-major
-            strides: self.shape.calculate_strides(),
+            strides: byte_strides,
             is_contiguous: self.shape.is_contiguous(),
             alignment: self.tensor_type.element_size(),
         }

@@ -476,7 +476,6 @@ impl std::fmt::Display for GGUFMemoryUsage {
 mod tests {
     use super::*;
     use crate::format::constants::*;
-    use crate::format::metadata::MetadataValue;
     use std::io::Cursor;
 
     fn create_minimal_gguf_data() -> Vec<u8> {

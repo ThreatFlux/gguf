@@ -17,7 +17,7 @@ impl TensorShape {
             return Err(GGUFError::InvalidTensorData("Tensor shape cannot be empty".to_string()));
         }
 
-        if dimensions.iter().any(|&d| d == 0) {
+        if dimensions.contains(&0) {
             return Err(GGUFError::InvalidTensorData(
                 "Tensor dimensions cannot be zero".to_string(),
             ));
@@ -84,7 +84,10 @@ impl TensorShape {
 
     /// Calculate the total number of elements
     pub fn element_count(&self) -> u64 {
-        self.dimensions.iter().product()
+        self.dimensions
+            .iter()
+            .try_fold(1u64, |acc, &dim| acc.checked_mul(dim).ok_or(()))
+            .unwrap_or(u64::MAX)
     }
 
     /// Check if this is a scalar (single element)

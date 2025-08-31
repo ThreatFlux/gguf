@@ -28,7 +28,7 @@ fn main() -> Result<()> {
     println!("📁 File size: {} bytes ({:.2} MB)", file_size, file_size as f64 / 1_048_576.0);
 
     // Open and read the GGUF file
-    let file = std::fs::File::open(file_path).map_err(|e| GGUFError::Io(e))?;
+    let file = std::fs::File::open(file_path).map_err(GGUFError::Io)?;
     let reader = GGUFFileReader::new(file)?;
 
     // Display basic file information
@@ -45,7 +45,7 @@ fn main() -> Result<()> {
     } else {
         let mut metadata_items: Vec<_> = reader.metadata().iter().collect();
         metadata_items.sort_by_key(|(key, _)| *key);
-        
+
         for (key, value) in metadata_items {
             match value {
                 MetadataValue::String(s) => println!("  📝 {}: \"{}\"", key, s),
@@ -65,13 +65,13 @@ fn main() -> Result<()> {
     } else {
         let mut total_params = 0u64;
         let mut total_size = 0u64;
-        
+
         for (i, tensor) in reader.tensor_infos().iter().enumerate() {
             let elements = tensor.element_count();
             let size_bytes = tensor.expected_data_size();
             total_params += elements;
             total_size += size_bytes;
-            
+
             println!("  Tensor {}: 📊 {}", i + 1, tensor.name());
             println!("    Type: {} 🏷️", tensor.tensor_type().name());
             println!("    Shape: {} 📐", tensor.shape());
@@ -85,7 +85,7 @@ fn main() -> Result<()> {
             }
             println!();
         }
-        
+
         println!("📈 Summary:");
         println!("  Total parameters: {} 🧮", format_number(total_params));
         println!("  Total tensor data: {} bytes ({}) 💾", total_size, format_bytes(total_size));
@@ -99,30 +99,35 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn analyze_tensor_types(tensors: &[TensorInfo]) {
+fn analyze_tensor_types(tensors: &[gguf::tensor::TensorInfo]) {
     if tensors.is_empty() {
         return;
     }
 
     println!("\n=== 🔬 Tensor Type Analysis ===");
-    
+
     let mut type_counts = std::collections::HashMap::new();
     let mut type_sizes = std::collections::HashMap::new();
-    
+
     for tensor in tensors {
         let tensor_type = tensor.tensor_type();
         *type_counts.entry(tensor_type).or_insert(0) += 1;
         *type_sizes.entry(tensor_type).or_insert(0u64) += tensor.expected_data_size();
     }
-    
+
     let mut types: Vec<_> = type_counts.keys().collect();
     types.sort_by_key(|t| t.name());
-    
+
     for tensor_type in types {
         let count = type_counts[tensor_type];
         let size = type_sizes[tensor_type];
-        println!("  {} 🏷️: {} tensors, {} ({}) 📊", 
-                 tensor_type.name(), count, format_bytes(size), size);
+        println!(
+            "  {} 🏷️: {} tensors, {} ({}) 📊",
+            tensor_type.name(),
+            count,
+            format_bytes(size),
+            size
+        );
     }
 }
 

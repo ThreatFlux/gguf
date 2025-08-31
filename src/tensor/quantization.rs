@@ -363,7 +363,7 @@ impl QuantizationParams {
         }
 
         // Block-based quantization
-        let num_blocks = (element_count + self.block_size as u64 - 1) / self.block_size as u64;
+        let num_blocks = element_count.div_ceil(self.block_size as u64);
         num_blocks * self.block_size_bytes as u64
     }
 
@@ -373,7 +373,7 @@ impl QuantizationParams {
             return element_count;
         }
 
-        (element_count + self.block_size as u64 - 1) / self.block_size as u64
+        element_count.div_ceil(self.block_size as u64)
     }
 
     /// Check if this quantization format is lossless

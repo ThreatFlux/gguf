@@ -366,7 +366,7 @@ impl GGUFTensorType {
         }
 
         let block_size = self.block_size() as u64;
-        let num_blocks = (element_count + block_size - 1) / block_size; // Ceiling division
+        let num_blocks = element_count.div_ceil(block_size);
 
         match self {
             GGUFTensorType::Q4_0 => num_blocks * 18, // 2 bytes scale + 16 bytes data per block
@@ -385,16 +385,16 @@ impl GGUFTensorType {
             GGUFTensorType::Q8_K => num_blocks * 256, // Approximate size
 
             // IQ types - approximate sizes
-            GGUFTensorType::IQ2_XXS => (element_count + 7) / 8 * 2, // ~2 bits per element
-            GGUFTensorType::IQ2_XS => (element_count + 7) / 8 * 2,  // ~2 bits per element
-            GGUFTensorType::IQ3_XXS => (element_count + 7) / 8 * 3, // ~3 bits per element
-            GGUFTensorType::IQ1_S => (element_count + 7) / 8,       // ~1 bit per element
-            GGUFTensorType::IQ4_NL => (element_count + 1) / 2,      // ~4 bits per element
-            GGUFTensorType::IQ3_S => (element_count + 7) / 8 * 3,   // ~3 bits per element
-            GGUFTensorType::IQ2_S => (element_count + 7) / 8 * 2,   // ~2 bits per element
-            GGUFTensorType::IQ4_XS => (element_count + 1) / 2,      // ~4 bits per element
-            GGUFTensorType::IQ1_M => (element_count + 7) / 8,       // ~1 bit per element
-            GGUFTensorType::IQ4_UNI => (element_count + 1) / 2,     // ~4 bits per element
+            GGUFTensorType::IQ2_XXS => element_count.div_ceil(8) * 2, // ~2 bits per element
+            GGUFTensorType::IQ2_XS => element_count.div_ceil(8) * 2,  // ~2 bits per element
+            GGUFTensorType::IQ3_XXS => element_count.div_ceil(8) * 3, // ~3 bits per element
+            GGUFTensorType::IQ1_S => element_count.div_ceil(8),       // ~1 bit per element
+            GGUFTensorType::IQ4_NL => element_count.div_ceil(2),      // ~4 bits per element
+            GGUFTensorType::IQ3_S => element_count.div_ceil(8) * 3,   // ~3 bits per element
+            GGUFTensorType::IQ2_S => element_count.div_ceil(8) * 2,   // ~2 bits per element
+            GGUFTensorType::IQ4_XS => element_count.div_ceil(2),      // ~4 bits per element
+            GGUFTensorType::IQ1_M => element_count.div_ceil(8),       // ~1 bit per element
+            GGUFTensorType::IQ4_UNI => element_count.div_ceil(2),     // ~4 bits per element
 
             // Fallback for unsupported types
             _ => element_count * self.element_size() as u64,

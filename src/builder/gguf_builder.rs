@@ -285,6 +285,42 @@ impl GGUFBuilder {
     ) -> Result<Self> {
         self.add_tensor("output.weight", vec![embedding_size, vocab_size], TensorType::F32, data)
     }
+
+    /// Add a tensor with F32 data
+    pub fn add_f32_tensor<N: Into<String>>(self, name: N, shape: Vec<u64>, data: Vec<f32>) -> Self {
+        // Convert f32 data to bytes
+        let mut bytes = Vec::with_capacity(data.len() * 4);
+        for value in data {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+
+        // Use unwrap here since this is a convenience method and should panic if there's an error
+        self.add_tensor(name, shape, TensorType::F32, bytes).unwrap()
+    }
+
+    /// Add a tensor with I32 data
+    pub fn add_i32_tensor<N: Into<String>>(self, name: N, shape: Vec<u64>, data: Vec<i32>) -> Self {
+        // Convert i32 data to bytes
+        let mut bytes = Vec::with_capacity(data.len() * 4);
+        for value in data {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+
+        // Use unwrap here since this is a convenience method and should panic if there's an error
+        self.add_tensor(name, shape, TensorType::I32, bytes).unwrap()
+    }
+
+    /// Add a quantized tensor with raw quantized data
+    pub fn add_quantized_tensor<N: Into<String>>(
+        self,
+        name: N,
+        shape: Vec<u64>,
+        tensor_type: TensorType,
+        data: Vec<u8>,
+    ) -> Self {
+        // Use unwrap here since this is a convenience method and should panic if there's an error
+        self.add_tensor(name, shape, tensor_type, data).unwrap()
+    }
 }
 
 impl std::fmt::Display for GGUFBuilderSummary {

@@ -116,7 +116,14 @@ impl TensorData {
 
     /// Check if the tensor data is empty
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        match self {
+            TensorData::Owned(data) => data.is_empty(),
+            TensorData::Borrowed(data) => data.is_empty(),
+            TensorData::Shared(data) => data.is_empty(),
+            #[cfg(feature = "mmap")]
+            TensorData::Mapped { length, .. } => *length == 0,
+            TensorData::Empty => true,
+        }
     }
 
     /// Get a slice of the tensor data
@@ -445,7 +452,7 @@ mod tests {
 
         assert_eq!(tensor_data.len(), 0);
         assert!(tensor_data.is_empty());
-        assert_eq!(tensor_data.as_slice(), &[]);
+        assert_eq!(tensor_data.as_slice(), &[] as &[u8]);
         assert_eq!(tensor_data.storage_type(), TensorStorageType::Empty);
     }
 

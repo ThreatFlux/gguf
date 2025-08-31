@@ -19,15 +19,16 @@ pub struct GGUFHeader {
     pub metadata_kv_count: u64,
 }
 
+impl Default for GGUFHeader {
+    fn default() -> Self {
+        Self::new(0, 0)
+    }
+}
+
 impl GGUFHeader {
     /// Create a new GGUF header with default values
     pub fn new(tensor_count: u64, metadata_kv_count: u64) -> Self {
         Self { magic: GGUF_MAGIC, version: GGUF_VERSION, tensor_count, metadata_kv_count }
-    }
-
-    /// Create a default header with zero counts
-    pub fn default() -> Self {
-        Self::new(0, 0)
     }
 
     /// Check if the header has valid magic number and version
@@ -54,11 +55,11 @@ impl GGUFHeader {
     }
 
     /// Read a header from a reader
-    pub fn read_from<R: Read>(mut reader: R) -> Result<Self> {
-        let magic = read_u32(&mut reader)?;
-        let version = read_u32(&mut reader)?;
-        let tensor_count = read_u64(&mut reader)?;
-        let metadata_kv_count = read_u64(&mut reader)?;
+    pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
+        let magic = read_u32(reader)?;
+        let version = read_u32(reader)?;
+        let tensor_count = read_u64(reader)?;
+        let metadata_kv_count = read_u64(reader)?;
 
         let header = Self { magic, version, tensor_count, metadata_kv_count };
 
@@ -189,7 +190,7 @@ impl TensorInfo {
             ));
         }
 
-        if self.dimensions.iter().any(|&d| d == 0) {
+        if self.dimensions.contains(&0) {
             return Err(GGUFError::InvalidTensorData(
                 "All dimensions must be greater than zero".to_string(),
             ));
@@ -211,9 +212,9 @@ impl TensorInfo {
     }
 
     /// Read tensor info from a reader
-    pub fn read_from<R: Read>(mut reader: R) -> Result<Self> {
+    pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         // Read string length and name
-        let name_len = read_u64(&mut reader)? as usize;
+        let name_len = read_u64(reader)? as usize;
         if name_len > GGUF_MAX_STRING_LENGTH {
             return Err(GGUFError::Format(format!("Tensor name too long: {} bytes", name_len)));
         }
@@ -224,7 +225,7 @@ impl TensorInfo {
             .map_err(|e| GGUFError::Format(format!("Invalid UTF-8 in tensor name: {}", e)))?;
 
         // Read dimensions
-        let n_dimensions = read_u32(&mut reader)?;
+        let n_dimensions = read_u32(reader)?;
         if n_dimensions == 0 || n_dimensions > 8 {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Invalid dimension count: {}",
@@ -234,12 +235,12 @@ impl TensorInfo {
 
         let mut dimensions = Vec::with_capacity(n_dimensions as usize);
         for _ in 0..n_dimensions {
-            dimensions.push(read_u64(&mut reader)?);
+            dimensions.push(read_u64(reader)?);
         }
 
         // Read tensor type and offset
-        let tensor_type = read_u32(&mut reader)?;
-        let offset = read_u64(&mut reader)?;
+        let tensor_type = read_u32(reader)?;
+        let offset = read_u64(reader)?;
 
         let tensor_info = Self { name, n_dimensions, dimensions, tensor_type, offset };
 

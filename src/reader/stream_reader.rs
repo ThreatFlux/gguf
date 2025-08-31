@@ -106,14 +106,7 @@ impl<R: Read> GGUFStreamReader<R> {
             position += padding_size as u64;
         }
 
-        Ok(Self {
-            reader,
-            header,
-            metadata,
-            tensor_infos,
-            position,
-            at_tensor_data: true,
-        })
+        Ok(Self { reader, header, metadata, tensor_infos, position, at_tensor_data: true })
     }
 
     /// Get the file header
@@ -160,10 +153,12 @@ impl<R: Read> GGUFStreamReader<R> {
             .filter(|(_, t)| !t.has_data())
             .min_by_key(|(_, t)| t.data_offset());
 
-        if let Some((_index, tensor_info)) = next_tensor {
+        if let Some((index, tensor_info)) = next_tensor {
             let data_size = tensor_info.expected_data_size() as usize;
             let target_position = tensor_info.data_offset();
             let tensor_name = tensor_info.name().to_string();
+            let tensor_shape = tensor_info.shape().clone();
+            let tensor_type = tensor_info.tensor_type();
 
             // Skip to the right position if needed
             if self.position < target_position {
@@ -177,6 +172,17 @@ impl<R: Read> GGUFStreamReader<R> {
             self.position += data_size as u64;
 
             let tensor_data = TensorData::new_owned(data);
+
+            // Update the tensor info to mark it as having data
+            if let Some(tensor_info_mut) = self.tensor_infos.get_mut(index) {
+                *tensor_info_mut = TensorInfoNew::with_data(
+                    tensor_name.clone(),
+                    tensor_shape,
+                    tensor_type,
+                    target_position,
+                    tensor_data.clone(),
+                );
+            }
 
             Ok(Some((tensor_name, tensor_data)))
         } else {
@@ -390,13 +396,17 @@ mod tests {
         data.extend_from_slice(&5u64.to_le_bytes()); // value length
         data.extend_from_slice(b"model"); // value
 
+        // Store positions where we'll write offsets
+        let mut offset_positions = Vec::new();
+
         // Tensor info 1
         data.extend_from_slice(&8u64.to_le_bytes()); // name length
         data.extend_from_slice(b"tensor_a"); // name
         data.extend_from_slice(&1u32.to_le_bytes()); // 1 dimension
         data.extend_from_slice(&4u64.to_le_bytes()); // dim 0
         data.extend_from_slice(&0u32.to_le_bytes()); // F32 type
-        data.extend_from_slice(&0u64.to_le_bytes()); // offset
+        offset_positions.push(data.len()); // Remember where offset goes
+        data.extend_from_slice(&0u64.to_le_bytes()); // offset placeholder
 
         // Tensor info 2
         data.extend_from_slice(&8u64.to_le_bytes()); // name length
@@ -404,12 +414,25 @@ mod tests {
         data.extend_from_slice(&1u32.to_le_bytes()); // 1 dimension
         data.extend_from_slice(&3u64.to_le_bytes()); // dim 0
         data.extend_from_slice(&0u32.to_le_bytes()); // F32 type
-        data.extend_from_slice(&16u64.to_le_bytes()); // offset (after first tensor)
+        offset_positions.push(data.len()); // Remember where offset goes
+        data.extend_from_slice(&0u64.to_le_bytes()); // offset placeholder
 
         // Align to 32 bytes
         while data.len() % 32 != 0 {
             data.push(0);
         }
+
+        // Now we know where tensor data starts - update the offsets
+        let tensor_data_start = data.len() as u64;
+
+        // Update tensor A offset
+        let tensor_a_pos = offset_positions[0];
+        data[tensor_a_pos..tensor_a_pos + 8].copy_from_slice(&tensor_data_start.to_le_bytes());
+
+        // Update tensor B offset (after tensor A)
+        let tensor_b_pos = offset_positions[1];
+        let tensor_b_offset = tensor_data_start + 16; // After tensor A (16 bytes)
+        data[tensor_b_pos..tensor_b_pos + 8].copy_from_slice(&tensor_b_offset.to_le_bytes());
 
         // Tensor data A (4 F32 = 16 bytes)
         data.extend_from_slice(&[0u8; 16]);

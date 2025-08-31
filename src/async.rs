@@ -3,7 +3,12 @@
 //! This module provides async variants of GGUF operations using Tokio.
 
 #[cfg(feature = "async")]
-use crate::{error::Result, format::constants::{GGUF_MAGIC, GGUF_VERSION}, error::GGUFError, format::Metadata};
+use crate::{
+    error::GGUFError,
+    error::Result,
+    format::constants::{GGUF_MAGIC, GGUF_VERSION},
+    format::Metadata,
+};
 
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -54,9 +59,9 @@ impl AsyncGGUFFile {
 #[cfg(all(feature = "async", test))]
 mod tests {
     use super::*;
-    use tokio::io::Cursor;
+    use std::io::Cursor;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_async_invalid_magic() {
         let data = [0x00, 0x00, 0x00, 0x00]; // Invalid magic
         let reader = Cursor::new(data);
@@ -65,7 +70,7 @@ mod tests {
         assert!(matches!(result, Err(GGUFError::InvalidMagic { .. })));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_async_valid_magic_invalid_version() {
         let mut data = Vec::new();
         data.extend_from_slice(&GGUF_MAGIC.to_le_bytes()); // Valid magic

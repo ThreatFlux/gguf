@@ -4,70 +4,70 @@ use crate::error::{GGUFError, Result};
 use std::io::{Read, Write};
 
 /// Read a u32 in little-endian format
-pub fn read_u32<R: Read>(mut reader: R) -> Result<u32> {
+pub fn read_u32<R: Read>(reader: &mut R) -> Result<u32> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(u32::from_le_bytes(buf))
 }
 
 /// Read a u64 in little-endian format
-pub fn read_u64<R: Read>(mut reader: R) -> Result<u64> {
+pub fn read_u64<R: Read>(reader: &mut R) -> Result<u64> {
     let mut buf = [0u8; 8];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(u64::from_le_bytes(buf))
 }
 
 /// Read an f32 in little-endian format
-pub fn read_f32<R: Read>(mut reader: R) -> Result<f32> {
+pub fn read_f32<R: Read>(reader: &mut R) -> Result<f32> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(f32::from_le_bytes(buf))
 }
 
 /// Read an f64 in little-endian format
-pub fn read_f64<R: Read>(mut reader: R) -> Result<f64> {
+pub fn read_f64<R: Read>(reader: &mut R) -> Result<f64> {
     let mut buf = [0u8; 8];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(f64::from_le_bytes(buf))
 }
 
 /// Read a u16 in little-endian format
-pub fn read_u16<R: Read>(mut reader: R) -> Result<u16> {
+pub fn read_u16<R: Read>(reader: &mut R) -> Result<u16> {
     let mut buf = [0u8; 2];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(u16::from_le_bytes(buf))
 }
 
 /// Read an i16 in little-endian format
-pub fn read_i16<R: Read>(mut reader: R) -> Result<i16> {
+pub fn read_i16<R: Read>(reader: &mut R) -> Result<i16> {
     let mut buf = [0u8; 2];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(i16::from_le_bytes(buf))
 }
 
 /// Read an i32 in little-endian format
-pub fn read_i32<R: Read>(mut reader: R) -> Result<i32> {
+pub fn read_i32<R: Read>(reader: &mut R) -> Result<i32> {
     let mut buf = [0u8; 4];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(i32::from_le_bytes(buf))
 }
 
 /// Read an i64 in little-endian format
-pub fn read_i64<R: Read>(mut reader: R) -> Result<i64> {
+pub fn read_i64<R: Read>(reader: &mut R) -> Result<i64> {
     let mut buf = [0u8; 8];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(i64::from_le_bytes(buf))
 }
 
 /// Read a u8
-pub fn read_u8<R: Read>(mut reader: R) -> Result<u8> {
+pub fn read_u8<R: Read>(reader: &mut R) -> Result<u8> {
     let mut buf = [0u8; 1];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(buf[0])
 }
 
 /// Read an i8
-pub fn read_i8<R: Read>(mut reader: R) -> Result<i8> {
+pub fn read_i8<R: Read>(reader: &mut R) -> Result<i8> {
     let mut buf = [0u8; 1];
     reader.read_exact(&mut buf).map_err(GGUFError::from)?;
     Ok(buf[0] as i8)

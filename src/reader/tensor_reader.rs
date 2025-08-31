@@ -1,9 +1,7 @@
 //! Tensor-specific reading utilities
 
 use crate::error::{GGUFError, Result};
-use crate::tensor::{
-    quantization::QuantizationParams, TensorData, TensorInfo, TensorType,
-};
+use crate::tensor::{quantization::QuantizationParams, TensorData, TensorInfo, TensorType};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Specialized reader for tensor data with format-specific handling
@@ -331,10 +329,10 @@ impl TensorReadUtils {
 
         // Use powers of 2 for better memory alignment
         let base_size = match tensor_size {
-            0..=4096 => 4096,           // 4KB for small tensors
-            4097..=65_536 => 16_384,    // 16KB for medium tensors
+            0..=4096 => 4096,             // 4KB for small tensors
+            4097..=65_536 => 16_384,      // 16KB for medium tensors
             65_537..=1_048_576 => 65_536, // 64KB for large tensors
-            _ => 262_144,               // 256KB for very large tensors
+            _ => 262_144,                 // 256KB for very large tensors
         };
 
         base_size.min(tensor_size)
@@ -406,8 +404,8 @@ impl TensorMemoryRequirements {
 
     /// Check if memory requirements are reasonable
     pub fn is_reasonable(&self, available_memory: usize) -> bool {
-        // Should use less than 80% of available memory
-        self.total_size < (available_memory * 4 / 5)
+        // Should use less than or equal to 80% of available memory
+        self.total_size <= (available_memory * 4 / 5)
     }
 }
 

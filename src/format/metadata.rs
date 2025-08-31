@@ -35,7 +35,7 @@ pub enum MetadataValue {
     /// UTF-8 string
     String(String),
     /// Array of values
-    Array(MetadataArray),
+    Array(Box<MetadataArray>),
     /// 64-bit unsigned integer
     U64(u64),
     /// 64-bit signed integer
@@ -94,7 +94,7 @@ impl MetadataValue {
             MetadataValue::F32(_) => 4,
             MetadataValue::Bool(_) => 1,
             MetadataValue::String(s) => 8 + s.len(), // length prefix + string data
-            MetadataValue::Array(arr) => arr.serialized_size(),
+            MetadataValue::Array(arr) => arr.as_ref().serialized_size(),
             MetadataValue::U64(_) => 8,
             MetadataValue::I64(_) => 8,
             MetadataValue::F64(_) => 8,
@@ -102,18 +102,18 @@ impl MetadataValue {
     }
 
     /// Read a metadata value from a reader
-    pub fn read_from<R: Read>(mut reader: R, value_type: GGUFValueType) -> Result<Self> {
+    pub fn read_from<R: Read>(reader: &mut R, value_type: GGUFValueType) -> Result<Self> {
         let value = match value_type {
-            GGUFValueType::U8 => MetadataValue::U8(read_u8(&mut reader)?),
-            GGUFValueType::I8 => MetadataValue::I8(read_i8(&mut reader)?),
-            GGUFValueType::U16 => MetadataValue::U16(read_u16(&mut reader)?),
-            GGUFValueType::I16 => MetadataValue::I16(read_i16(&mut reader)?),
-            GGUFValueType::U32 => MetadataValue::U32(read_u32(&mut reader)?),
-            GGUFValueType::I32 => MetadataValue::I32(read_i32(&mut reader)?),
-            GGUFValueType::F32 => MetadataValue::F32(read_f32(&mut reader)?),
-            GGUFValueType::Bool => MetadataValue::Bool(read_u8(&mut reader)? != 0),
+            GGUFValueType::U8 => MetadataValue::U8(read_u8(reader)?),
+            GGUFValueType::I8 => MetadataValue::I8(read_i8(reader)?),
+            GGUFValueType::U16 => MetadataValue::U16(read_u16(reader)?),
+            GGUFValueType::I16 => MetadataValue::I16(read_i16(reader)?),
+            GGUFValueType::U32 => MetadataValue::U32(read_u32(reader)?),
+            GGUFValueType::I32 => MetadataValue::I32(read_i32(reader)?),
+            GGUFValueType::F32 => MetadataValue::F32(read_f32(reader)?),
+            GGUFValueType::Bool => MetadataValue::Bool(read_u8(reader)? != 0),
             GGUFValueType::String => {
-                let len = read_u64(&mut reader)? as usize;
+                let len = read_u64(reader)? as usize;
                 if len > GGUF_MAX_STRING_LENGTH {
                     return Err(GGUFError::Format(format!("String too long: {} bytes", len)));
                 }
@@ -124,12 +124,12 @@ impl MetadataValue {
                 MetadataValue::String(string)
             }
             GGUFValueType::Array => {
-                let array = MetadataArray::read_from(&mut reader)?;
-                MetadataValue::Array(array)
+                let array = MetadataArray::read_from(reader)?;
+                MetadataValue::Array(Box::new(array))
             }
-            GGUFValueType::U64 => MetadataValue::U64(read_u64(&mut reader)?),
-            GGUFValueType::I64 => MetadataValue::I64(read_i64(&mut reader)?),
-            GGUFValueType::F64 => MetadataValue::F64(read_f64(&mut reader)?),
+            GGUFValueType::U64 => MetadataValue::U64(read_u64(reader)?),
+            GGUFValueType::I64 => MetadataValue::I64(read_i64(reader)?),
+            GGUFValueType::F64 => MetadataValue::F64(read_f64(reader)?),
         };
 
         Ok(value)
@@ -150,7 +150,7 @@ impl MetadataValue {
                 write_u64(writer, s.len() as u64)?;
                 writer.write_all(s.as_bytes())?;
             }
-            MetadataValue::Array(arr) => arr.write_to(writer)?,
+            MetadataValue::Array(arr) => arr.as_ref().write_to(writer)?,
             MetadataValue::U64(v) => write_u64(writer, *v)?,
             MetadataValue::I64(v) => write_i64(writer, *v)?,
             MetadataValue::F64(v) => write_f64(writer, *v)?,
@@ -254,10 +254,10 @@ impl MetadataArray {
     }
 
     /// Read a metadata array from a reader
-    pub fn read_from<R: Read>(mut reader: R) -> Result<Self> {
-        let element_type_raw = read_u32(&mut reader)?;
+    pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
+        let element_type_raw = read_u32(reader)?;
         let element_type = GGUFValueType::from_u32(element_type_raw)?;
-        let length = read_u64(&mut reader)?;
+        let length = read_u64(reader)?;
 
         if length > GGUF_MAX_ARRAY_LENGTH as u64 {
             return Err(GGUFError::InvalidMetadata(format!("Array too long: {} elements", length)));
@@ -265,7 +265,7 @@ impl MetadataArray {
 
         let mut values = Vec::with_capacity(length as usize);
         for _ in 0..length {
-            let value = MetadataValue::read_from(&mut reader, element_type)?;
+            let value = MetadataValue::read_from(reader, element_type)?;
             values.push(value);
         }
 
@@ -357,12 +357,12 @@ impl Metadata {
     }
 
     /// Read metadata from a reader
-    pub fn read_from<R: Read>(mut reader: R, count: u64) -> Result<Self> {
+    pub fn read_from<R: Read>(reader: &mut R, count: u64) -> Result<Self> {
         let mut data = HashMap::with_capacity(count as usize);
 
         for _ in 0..count {
             // Read key
-            let key_len = read_u64(&mut reader)? as usize;
+            let key_len = read_u64(reader)? as usize;
             if key_len > GGUF_MAX_STRING_LENGTH {
                 return Err(GGUFError::Format(format!("Metadata key too long: {} bytes", key_len)));
             }
@@ -373,9 +373,9 @@ impl Metadata {
                 .map_err(|e| GGUFError::Format(format!("Invalid UTF-8 in metadata key: {}", e)))?;
 
             // Read value type and value
-            let value_type_raw = read_u32(&mut reader)?;
+            let value_type_raw = read_u32(reader)?;
             let value_type = GGUFValueType::from_u32(value_type_raw)?;
-            let value = MetadataValue::read_from(&mut reader, value_type)?;
+            let value = MetadataValue::read_from(reader, value_type)?;
 
             data.insert(key, value);
         }
@@ -464,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_metadata_value_io() {
-        let original = MetadataValue::F32(3.14159);
+        let original = MetadataValue::F32(std::f32::consts::PI);
 
         let mut buffer = Vec::new();
         original.write_to(&mut buffer).unwrap();

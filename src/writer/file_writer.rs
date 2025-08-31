@@ -506,7 +506,6 @@ mod tests {
     use super::*;
     use crate::format::metadata::MetadataValue;
     use crate::tensor::{TensorShape, TensorType};
-    use std::io::Cursor;
 
     fn create_test_metadata() -> Metadata {
         let mut metadata = Metadata::new();

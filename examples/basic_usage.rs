@@ -17,40 +17,40 @@ fn main() -> Result<()> {
     println!("Reading GGUF file: {}", file_path);
 
     // Open and read the GGUF file
-    let file = std::fs::File::open(file_path).map_err(|e| GGUFError::Io(e))?;
+    let file = std::fs::File::open(file_path).map_err(GGUFError::Io)?;
 
-    let gguf = GGUFFile::read(file)?;
+    let reader = GGUFFileReader::new(file)?;
 
     // Display basic file information
     println!("\n=== GGUF File Information ===");
-    println!("GGUF Version: {}", gguf.version());
-    println!("Number of tensors: {}", gguf.tensors().len());
-    println!("Number of metadata entries: {}", gguf.metadata().len());
+    println!("GGUF Version: {}", reader.header().version);
+    println!("Number of tensors: {}", reader.tensor_infos().len());
+    println!("Number of metadata entries: {}", reader.metadata().len());
 
     // Display metadata
     println!("\n=== Metadata ===");
-    if gguf.metadata().is_empty() {
+    if reader.metadata().is_empty() {
         println!("No metadata found");
     } else {
-        for (key, value) in gguf.metadata().iter() {
+        for (key, value) in reader.metadata().iter() {
             println!("{}: {}", key, value);
         }
     }
 
     // Display tensor information
     println!("\n=== Tensors ===");
-    if gguf.tensors().is_empty() {
+    if reader.tensor_infos().is_empty() {
         println!("No tensors found");
     } else {
-        for (i, tensor) in gguf.tensors().iter().enumerate() {
+        for (i, tensor) in reader.tensor_infos().iter().enumerate() {
             println!("Tensor {}: {}", i, tensor.name());
             println!("  Type: {}", tensor.tensor_type());
-            println!("  Shape: {:?}", tensor.shape());
+            println!("  Shape: {:?}", tensor.shape().dims());
             println!("  Elements: {}", tensor.element_count());
-            println!("  Size: {} bytes", tensor.data().len());
+            println!("  Expected size: {} bytes", tensor.expected_data_size());
 
             if i >= 10 {
-                println!("  ... and {} more tensors", gguf.tensors().len() - 10);
+                println!("  ... and {} more tensors", reader.tensor_infos().len() - 10);
                 break;
             }
         }
@@ -74,10 +74,10 @@ mod tests {
         data.extend_from_slice(&0u64.to_le_bytes()); // Metadata count
 
         let cursor = Cursor::new(data);
-        let gguf = GGUFFile::read(cursor).unwrap();
+        let reader = GGUFFileReader::new(cursor).unwrap();
 
-        assert_eq!(gguf.version(), 3);
-        assert_eq!(gguf.tensors().len(), 0);
-        assert_eq!(gguf.metadata().len(), 0);
+        assert_eq!(reader.header().version, 3);
+        assert_eq!(reader.tensor_infos().len(), 0);
+        assert_eq!(reader.metadata().len(), 0);
     }
 }

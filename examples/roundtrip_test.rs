@@ -1,6 +1,10 @@
 //! GGUF roundtrip test - create a file and read it back to verify everything works
 
+use gguf::format::Metadata as FormatMetadata;
 use gguf::prelude::*;
+use gguf::reader::GGUFStreamReader;
+use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+use gguf::writer::GGUFStreamWriter;
 use std::io::Cursor;
 
 fn main() -> Result<()> {
@@ -28,20 +32,20 @@ fn test_minimal_roundtrip() -> Result<()> {
     let mut buffer = Vec::new();
 
     // Create empty metadata and tensor list
-    let metadata = Metadata::new();
+    let metadata = FormatMetadata::new();
     let tensors = Vec::<(TensorInfo, TensorData)>::new();
 
     // Write to buffer using stream writer
     let cursor = Cursor::new(&mut buffer);
-    let mut writer = crate::writer::stream_writer::GGUFStreamWriter::new(cursor);
-    
+    let mut writer = GGUFStreamWriter::new(cursor);
+
     let _result = writer.write_complete_stream(&metadata, &tensors)?;
-    
+
     println!("  ✅ Created minimal GGUF: {} bytes", buffer.len());
 
     // Read it back
     let cursor = Cursor::new(buffer);
-    let reader = crate::reader::stream_reader::GGUFStreamReader::new(cursor)?;
+    let reader = GGUFStreamReader::new(cursor)?;
 
     println!("  ✅ Read back successfully");
     println!("     - Version: {}", reader.header().version);
@@ -57,30 +61,32 @@ fn test_minimal_roundtrip() -> Result<()> {
 
 fn test_full_roundtrip() -> Result<()> {
     // Create metadata
-    let mut metadata = Metadata::new();
+    let mut metadata = FormatMetadata::new();
     metadata.insert("test.name".to_string(), MetadataValue::String("Test Model".to_string()));
     metadata.insert("test.version".to_string(), MetadataValue::U32(42));
     metadata.insert("test.temperature".to_string(), MetadataValue::F32(0.8));
 
     // Create a simple tensor
     let shape = TensorShape::new(vec![2, 3])?;
-    let data = TensorData::new_owned(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+    let data = TensorData::new_owned(vec![
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
+    ]);
     let tensor_info = TensorInfo::new("test.weights".to_string(), shape, TensorType::F32, 0);
-    
+
     let tensors = vec![(tensor_info, data)];
 
     // Write to buffer
     let mut buffer = Vec::new();
     let cursor = Cursor::new(&mut buffer);
-    let mut writer = crate::writer::stream_writer::GGUFStreamWriter::new(cursor);
-    
+    let mut writer = GGUFStreamWriter::new(cursor);
+
     let _result = writer.write_complete_stream(&metadata, &tensors)?;
-    
+
     println!("  ✅ Created full GGUF: {} bytes", buffer.len());
 
     // Read it back
     let cursor = Cursor::new(buffer);
-    let mut reader = crate::reader::stream_reader::GGUFStreamReader::new(cursor)?;
+    let mut reader = GGUFStreamReader::new(cursor)?;
 
     println!("  ✅ Read back successfully");
     println!("     - Version: {}", reader.header().version);
@@ -88,9 +94,21 @@ fn test_full_roundtrip() -> Result<()> {
     println!("     - Metadata: {}", reader.metadata().len());
 
     // Verify metadata
-    assert_eq!(reader.metadata().get_string("test.name"), Some("Test Model"));
-    assert_eq!(reader.metadata().get_u32("test.version"), Some(42));
-    assert_eq!(reader.metadata().get_f32("test.temperature"), Some(0.8));
+    if let Some(MetadataValue::String(name)) = reader.metadata().get("test.name") {
+        assert_eq!(name, "Test Model");
+    } else {
+        panic!("Expected string metadata value for test.name");
+    }
+    if let Some(MetadataValue::U32(version)) = reader.metadata().get("test.version") {
+        assert_eq!(*version, 42);
+    } else {
+        panic!("Expected u32 metadata value for test.version");
+    }
+    if let Some(MetadataValue::F32(temp)) = reader.metadata().get("test.temperature") {
+        assert_eq!(*temp, 0.8);
+    } else {
+        panic!("Expected f32 metadata value for test.temperature");
+    }
 
     // Verify tensor info
     assert_eq!(reader.tensor_count(), 1);
@@ -110,22 +128,23 @@ fn test_full_roundtrip() -> Result<()> {
 
 fn test_file_roundtrip() -> Result<()> {
     let file_path = "test_roundtrip.gguf";
-    
+
     // Create file
     {
-        let mut metadata = Metadata::new();
-        metadata.insert("file.test".to_string(), MetadataValue::String("File I/O Test".to_string()));
-        
+        let mut metadata = FormatMetadata::new();
+        metadata
+            .insert("file.test".to_string(), MetadataValue::String("File I/O Test".to_string()));
+
         let shape = TensorShape::new(vec![4])?;
         let data = TensorData::new_owned(vec![0u8; 16]); // 4 F32 values
         let tensor_info = TensorInfo::new("file.tensor".to_string(), shape, TensorType::F32, 0);
-        
+
         let tensors = vec![(tensor_info, data)];
 
         // Write to file using file writer
         let file = std::fs::File::create(file_path)?;
         let mut writer = GGUFFileWriter::new(file);
-        
+
         let result = writer.write_complete_file(&metadata, &tensors)?;
         println!("  ✅ Created file: {} bytes written", result.total_bytes_written);
     }
@@ -134,7 +153,7 @@ fn test_file_roundtrip() -> Result<()> {
     {
         let file = std::fs::File::open(file_path)?;
         let reader = GGUFFileReader::new(file)?;
-        
+
         println!("  ✅ Read file successfully");
         println!("     - Version: {}", reader.header().version);
         println!("     - Tensors: {}", reader.tensor_infos().len());
@@ -148,6 +167,6 @@ fn test_file_roundtrip() -> Result<()> {
 
     // Clean up
     std::fs::remove_file(file_path).ok();
-    
+
     Ok(())
 }

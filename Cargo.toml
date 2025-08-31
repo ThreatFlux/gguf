@@ -27,7 +27,7 @@ thiserror = "1.0"
 # byteorder = "1.5"
 
 # Optional dependencies for additional functionality
-tokio = { version = "1.0", features = ["io-util", "fs"], optional = true }
+tokio = { version = "1.0", features = ["io-util", "fs", "macros", "rt-multi-thread"], optional = true }
 memmap2 = { version = "0.9", optional = true }
 
 [features]
