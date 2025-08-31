@@ -1,0 +1,71 @@
+# Rust build artifacts
+/target/
+/Cargo.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Log files
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Test artifacts
+/test-results/
+coverage/
+*.profraw
+
+# Documentation build artifacts
+/book/
+/docs/book/
+
+# Benchmark results
+/criterion/
+/benchmarks/
+
+# Example GGUF files (these can be large)
+# Comment out if you want to track test GGUF files
+# *.gguf
+# *.bin
+# But always ignore the data directory with large models
+/data/*.gguf
+/data/*.bin
+
+# Backup files
+*.bak
+*.backup
+
+# Local development
+.local/
+local/
+
+# Rust-analyzer
+rust-project.json
+
+# flamegraph profiling
+flamegraph.svg
+perf.data*
+
+# Dependency directories (if vendored)
+/vendor/

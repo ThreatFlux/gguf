@@ -1,0 +1,63 @@
+[package]
+name = "gguf-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command-line tool for working with GGUF (GGML Universal Format) files"
+authors = ["Claude Code", "Wyatt Roersma"]
+license = "MIT"
+repository = "https://github.com/ThreatFlux/gguf_rs"
+homepage = "https://github.com/ThreatFlux/gguf_rs"
+readme = "../README.md"
+keywords = ["gguf", "ggml", "machine-learning", "cli", "format"]
+categories = ["command-line-utilities", "parsing"]
+
+[[bin]]
+name = "gguf-cli"
+path = "src/main.rs"
+
+[dependencies]
+# Core GGUF library
+gguf = { path = "..", features = ["std"] }
+
+# CLI framework
+clap = { version = "4.4", features = ["derive", "color"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Serialization for output formats
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_yaml = "0.9"
+toml = "0.8"
+
+# Terminal and output formatting
+colored = { version = "2.0", optional = true }
+tabled = { version = "0.15", optional = true }
+indicatif = { version = "0.17", features = ["rayon"], optional = true }
+
+# File I/O and path handling
+walkdir = "2.4"
+glob = "0.3"
+
+# Parallel processing
+rayon = "1.8"
+
+# Optional async support
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "fs", "macros"], optional = true }
+
+# Optional hexdump functionality
+hexyl = { version = "0.14", optional = true }
+
+[features]
+default = ["color", "progress"]
+color = ["dep:colored", "dep:tabled"]
+progress = ["dep:indicatif"]
+async = ["dep:tokio", "gguf/async"]
+hexdump = ["dep:hexyl"]
+
+[dev-dependencies]
+tempfile = "3.8"
+assert_cmd = "2.0"
+predicates = "3.0"

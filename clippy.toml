@@ -1,0 +1,47 @@
+# Clippy configuration for gguf_rs
+# See https://doc.rust-lang.org/clippy/configuration.html for all options
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Documentation threshold
+doc-valid-idents = ["gguf", "GGUF", "ggml", "GGML", "llama", "LLAMA"]
+
+# Literal representation threshold
+literal-representation-threshold = 10
+
+# Maximum number of lines for single expressions
+single-char-binding-names-threshold = 4
+
+# Trivial copy threshold
+trivial-copy-size-limit = 64
+
+# Type complexity threshold
+type-complexity-threshold = 250
+
+# Maximum size for arrays on stack
+array-size-threshold = 512000
+
+# Vector box size threshold
+vec-box-size-threshold = 4096
+
+# Maximum number of arguments for functions
+too-many-arguments-threshold = 7
+
+# Maximum number of lines for functions
+too-many-lines-threshold = 100
+
+# Enum variant size threshold
+enum-variant-size-threshold = 200
+
+# Large stack array threshold (removed duplicate - using value from above)
+
+# Struct excessive bool threshold
+max-struct-bools = 3
+
+# Maximum allowed size for `Future`
+future-size-threshold = 16384
+
+# Suppress specific lints that may not apply to this project
+# These can be uncommented and customized as needed
+# msrv = "1.70.0"  # Minimum supported Rust version
