@@ -3,10 +3,16 @@
 use crate::error::{GGUFError, Result};
 use crate::format::Metadata;
 use crate::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+
+#[cfg(feature = "std")]
 use crate::writer::{GGUFFileWriter, GGUFWriteResult, GGUFWriterConfig};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::{BufWriter, Write};
+#[cfg(feature = "std")]
 use std::path::Path;
 
 /// High-level builder for creating GGUF files

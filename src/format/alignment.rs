@@ -2,6 +2,13 @@
 
 use crate::format::constants::GGUF_DEFAULT_ALIGNMENT;
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+#[cfg(not(feature = "std"))]
+use core::{fmt, mem};
+
 /// Calculate the padding needed to align to the specified boundary
 pub fn calculate_padding(current_position: usize, alignment: usize) -> usize {
     if alignment == 0 || alignment == 1 {
@@ -90,8 +97,17 @@ pub fn next_power_of_2(mut n: usize) -> usize {
     n |= n >> 4;
     n |= n >> 8;
     n |= n >> 16;
-    if std::mem::size_of::<usize>() > 4 {
-        n |= n >> 32;
+    #[cfg(feature = "std")]
+    {
+        if std::mem::size_of::<usize>() > 4 {
+            n |= n >> 32;
+        }
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        if mem::size_of::<usize>() > 4 {
+            n |= n >> 32;
+        }
     }
     n + 1
 }
@@ -134,8 +150,20 @@ impl AlignmentInfo {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::fmt::Display for AlignmentInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "AlignmentInfo {{ pos: {}, align: {}, padding: {}, aligned_pos: {} }}",
+            self.position, self.alignment, self.padding, self.aligned_position
+        )
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl fmt::Display for AlignmentInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "AlignmentInfo {{ pos: {}, align: {}, padding: {}, aligned_pos: {} }}",

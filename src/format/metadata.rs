@@ -3,18 +3,31 @@
 use crate::error::{GGUFError, Result};
 use crate::format::constants::*;
 use crate::format::types::GGUFValueType;
-// Simplified implementation to avoid byteorder recursion issues
+
+#[cfg(feature = "std")]
 use crate::format::endian::{
     read_f32, read_f64, read_i16, read_i32, read_i64, read_i8, read_u16, read_u32, read_u64,
     read_u8, write_f32, write_f64, write_i16, write_i32, write_i64, write_i8, write_u16, write_u32,
     write_u64, write_u8,
 };
-use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
 use std::io::{Read, Write};
 
+#[cfg(feature = "std")]
+use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, format, string::String, vec::Vec};
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+
 /// A metadata value in a GGUF file
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MetadataValue {
     /// 8-bit unsigned integer
     U8(u8),
@@ -45,7 +58,8 @@ pub enum MetadataValue {
 }
 
 /// An array of metadata values (all of the same type)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MetadataArray {
     /// Type of elements in the array
     pub element_type: GGUFValueType,
@@ -56,7 +70,8 @@ pub struct MetadataArray {
 }
 
 /// Collection of metadata key-value pairs
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Default)]
 pub struct Metadata {
     /// Metadata key-value pairs
     pub data: HashMap<String, MetadataValue>,
@@ -102,6 +117,7 @@ impl MetadataValue {
     }
 
     /// Read a metadata value from a reader
+    #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R, value_type: GGUFValueType) -> Result<Self> {
         let value = match value_type {
             GGUFValueType::U8 => MetadataValue::U8(read_u8(reader)?),
@@ -136,6 +152,7 @@ impl MetadataValue {
     }
 
     /// Write a metadata value to a writer  
+    #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         match self {
             MetadataValue::U8(v) => write_u8(writer, *v)?,
@@ -254,6 +271,7 @@ impl MetadataArray {
     }
 
     /// Read a metadata array from a reader
+    #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         let element_type_raw = read_u32(reader)?;
         let element_type = GGUFValueType::from_u32(element_type_raw)?;
@@ -273,6 +291,7 @@ impl MetadataArray {
     }
 
     /// Write a metadata array to a writer
+    #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         write_u32(writer, self.element_type as u32)?;
         write_u64(writer, self.length)?;
@@ -342,21 +361,40 @@ impl Metadata {
     }
 
     /// Iterate over key-value pairs
+    #[cfg(feature = "std")]
     pub fn iter(&self) -> std::collections::hash_map::Iter<String, MetadataValue> {
         self.data.iter()
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn iter(&self) -> hashbrown::hash_map::Iter<String, MetadataValue> {
+        self.data.iter()
+    }
+
     /// Get all keys
+    #[cfg(feature = "std")]
     pub fn keys(&self) -> std::collections::hash_map::Keys<String, MetadataValue> {
         self.data.keys()
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn keys(&self) -> hashbrown::hash_map::Keys<String, MetadataValue> {
+        self.data.keys()
+    }
+
     /// Get all values
+    #[cfg(feature = "std")]
     pub fn values(&self) -> std::collections::hash_map::Values<String, MetadataValue> {
         self.data.values()
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn values(&self) -> hashbrown::hash_map::Values<String, MetadataValue> {
+        self.data.values()
+    }
+
     /// Read metadata from a reader
+    #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R, count: u64) -> Result<Self> {
         let mut data = HashMap::with_capacity(count as usize);
 
@@ -384,6 +422,7 @@ impl Metadata {
     }
 
     /// Write metadata to a writer
+    #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         for (key, value) in &self.data {
             // Write key

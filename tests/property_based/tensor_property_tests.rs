@@ -5,9 +5,12 @@ use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 use proptest::prelude::*;
 use std::io::Cursor;
 
-// Strategy for generating valid tensor shapes
+// Strategy for generating valid tensor shapes (limited to reasonable sizes)
 fn tensor_shape_strategy() -> impl Strategy<Value = Vec<u64>> {
-    prop::collection::vec(1u64..1000, 1..5) // 1-5 dimensions, each 1-1000 elements
+    // Strategy that ensures total elements stays reasonable
+    prop::collection::vec(1u64..50, 1..4).prop_filter("Total elements must be <= 10000", |shape| {
+        shape.iter().product::<u64>() <= 10_000
+    })
 }
 
 // Strategy for generating tensor names

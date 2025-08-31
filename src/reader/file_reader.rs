@@ -1,12 +1,20 @@
 //! File-based GGUF reader
 
+#[cfg(feature = "std")]
 use crate::error::{GGUFError, Result};
+#[cfg(feature = "std")]
 use crate::format::types::GGUFTensorType as TensorType;
+#[cfg(feature = "std")]
 use crate::format::{alignment::align_to_default, GGUFHeader, Metadata, TensorInfo};
+#[cfg(feature = "std")]
 use crate::tensor::{TensorData, TensorInfo as TensorInfoNew, TensorShape};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::{BufReader, Read, Seek, SeekFrom};
+#[cfg(feature = "std")]
 use std::path::Path;
 
 /// A reader for GGUF files

@@ -2,6 +2,11 @@
 
 use crate::format::{metadata::MetadataValue, Metadata};
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
+
 /// Builder for GGUF metadata
 #[derive(Debug, Default, Clone)]
 pub struct MetadataBuilder {

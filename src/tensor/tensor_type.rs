@@ -1,11 +1,20 @@
 //! Tensor type definitions and utilities
 
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{string::String, vec, vec::Vec};
+#[cfg(not(feature = "std"))]
+use core::cmp::Ordering;
 
 pub use crate::format::types::GGUFTensorType as TensorType;
 
 /// Extended tensor type information with additional metadata
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TensorTypeInfo {
     /// The tensor type
     pub tensor_type: TensorType,
@@ -22,7 +31,8 @@ pub struct TensorTypeInfo {
 }
 
 /// Categories of quantization schemes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum QuantizationCategory {
     /// No quantization (F32, F16, BF16, etc.)
     None,
@@ -223,8 +233,14 @@ impl TensorTypeUtils {
             if prefer_k_quant {
                 match (a.quantization_category, b.quantization_category) {
                     (QuantizationCategory::KQuant, QuantizationCategory::KQuant) => {}
+                    #[cfg(feature = "std")]
                     (QuantizationCategory::KQuant, _) => return std::cmp::Ordering::Less,
+                    #[cfg(feature = "std")]
                     (_, QuantizationCategory::KQuant) => return std::cmp::Ordering::Greater,
+                    #[cfg(not(feature = "std"))]
+                    (QuantizationCategory::KQuant, _) => return Ordering::Less,
+                    #[cfg(not(feature = "std"))]
+                    (_, QuantizationCategory::KQuant) => return Ordering::Greater,
                     _ => {}
                 }
             }

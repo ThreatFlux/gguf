@@ -1,8 +1,15 @@
 //! Tensor data storage and management
 
 use crate::error::{GGUFError, Result};
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
 use std::sync::Arc;
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{format, sync::Arc, vec, vec::Vec};
 
 /// Container for tensor data with different storage backends
 #[derive(Debug, Clone)]
@@ -32,7 +39,8 @@ pub enum TensorData {
 }
 
 /// Information about tensor data storage
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorDataInfo {
     /// Size of the data in bytes
     pub size_bytes: usize,
@@ -45,7 +53,8 @@ pub struct TensorDataInfo {
 }
 
 /// Types of tensor storage
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TensorStorageType {
     /// Owned in-memory storage
     Owned,
@@ -357,7 +366,8 @@ impl TensorData {
 }
 
 /// Memory usage information for tensor data
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorMemoryUsage {
     /// Allocated memory in bytes
     pub allocated_bytes: usize,

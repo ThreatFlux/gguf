@@ -1,11 +1,18 @@
 //! GGUF data types and type system
 
 use crate::error::{GGUFError, Result};
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::format;
 
 /// Type identifiers used in the GGUF format for metadata values
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GGUFValueType {
     /// 8-bit unsigned integer
     U8 = 0,
@@ -37,7 +44,8 @@ pub enum GGUFValueType {
 
 /// Type identifiers for tensor data types in GGUF
 #[repr(u32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[allow(non_camel_case_types)] // GGUF spec uses these exact names
 pub enum GGUFTensorType {
     /// 32-bit floating point

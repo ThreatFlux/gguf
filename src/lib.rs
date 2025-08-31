@@ -28,6 +28,7 @@ pub use error::{GGUFError, Result};
 
 // Re-export commonly used items in prelude
 pub mod prelude {
+    #[cfg(feature = "std")]
     pub use crate::builder::gguf_builder::GGUFBuilder;
     pub use crate::error::{GGUFError, Result};
     pub use crate::format::constants::{GGUF_DEFAULT_ALIGNMENT, GGUF_MAGIC, GGUF_VERSION};
@@ -35,6 +36,8 @@ pub mod prelude {
     pub use crate::format::metadata::Metadata;
     pub use crate::format::metadata::MetadataValue;
     pub use crate::format::types::GGUFTensorType;
+    #[cfg(feature = "std")]
     pub use crate::reader::file_reader::GGUFFileReader;
+    #[cfg(feature = "std")]
     pub use crate::writer::file_writer::GGUFFileWriter;
 }

@@ -2,9 +2,17 @@
 
 use crate::error::{GGUFError, Result};
 use crate::format::constants::*;
+
+#[cfg(feature = "std")]
 // Simplified implementation to avoid byteorder recursion issues
 use crate::format::endian::{read_u32, read_u64, write_u32, write_u64};
+#[cfg(feature = "std")]
 use std::io::{Read, Write};
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
 
 /// GGUF file header structure
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +63,7 @@ impl GGUFHeader {
     }
 
     /// Read a header from a reader
+    #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         let magic = read_u32(reader)?;
         let version = read_u32(reader)?;
@@ -68,6 +77,7 @@ impl GGUFHeader {
     }
 
     /// Write the header to a writer
+    #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         self.validate()?;
 
@@ -212,6 +222,7 @@ impl TensorInfo {
     }
 
     /// Read tensor info from a reader
+    #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         // Read string length and name
         let name_len = read_u64(reader)? as usize;
@@ -249,6 +260,7 @@ impl TensorInfo {
     }
 
     /// Write tensor info to a writer
+    #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         self.validate()?;
 

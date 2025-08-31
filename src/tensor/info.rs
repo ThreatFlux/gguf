@@ -3,8 +3,17 @@
 use crate::error::{GGUFError, Result};
 use crate::format::types::GGUFTensorType as TensorType;
 use crate::tensor::{TensorData, TensorShape};
+
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec::Vec};
 
 /// Complete information about a tensor
 #[derive(Debug, Clone, PartialEq)]
@@ -24,7 +33,8 @@ pub struct TensorInfo {
 }
 
 /// Metadata associated with a tensor
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TensorMetadata {
     /// Custom key-value pairs
     pub attributes: HashMap<String, String>,
@@ -39,7 +49,8 @@ pub struct TensorMetadata {
 }
 
 /// Summary statistics about a tensor
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TensorStats {
     /// Minimum value (for numerical analysis)
     pub min_value: Option<f64>,
@@ -56,7 +67,8 @@ pub struct TensorStats {
 }
 
 /// Tensor layout information
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorLayout {
     /// Memory layout (row-major, column-major, etc.)
     pub memory_layout: MemoryLayout,
@@ -69,7 +81,8 @@ pub struct TensorLayout {
 }
 
 /// Memory layout types
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemoryLayout {
     /// Row-major (C-style) layout
     RowMajor,
@@ -341,7 +354,8 @@ impl TensorInfo {
 }
 
 /// Memory usage information for a tensor
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TensorMemoryInfo {
     /// Tensor name
     pub name: String,

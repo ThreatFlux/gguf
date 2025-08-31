@@ -5,6 +5,7 @@
 
 pub mod alignment;
 pub mod constants;
+#[cfg(feature = "std")]
 pub mod endian;
 pub mod header;
 pub mod metadata;

@@ -2,7 +2,15 @@
 
 use crate::error::{GGUFError, Result};
 use crate::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{format, string::String, vec, vec::Vec};
 
 /// Builder for tensor collections
 #[derive(Debug, Default)]

@@ -1,7 +1,15 @@
 //! Quantization format structures and utilities
 
 use crate::format::types::GGUFTensorType as TensorType;
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{vec, vec::Vec};
+#[cfg(feature = "std")]
+use std::vec::Vec;
 
 /// Block-based quantization format structures
 pub mod blocks {
@@ -173,7 +181,8 @@ pub mod blocks {
 }
 
 /// Quantization parameters for different tensor types
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 pub struct QuantizationParams {
     /// The tensor type this applies to
     pub tensor_type: TensorType,

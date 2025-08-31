@@ -1,10 +1,17 @@
 //! Tensor shape and dimension handling
 
 use crate::error::{GGUFError, Result};
+#[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::{format, vec, vec::Vec};
+
 /// Represents the shape of a tensor
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TensorShape {
     /// Dimensions of the tensor
     pub dimensions: Vec<u64>,

@@ -1,7 +1,15 @@
 //! Metadata handling for GGUF files
 
 pub use crate::format::metadata::MetadataValue;
+
+#[cfg(not(feature = "std"))]
+use hashbrown::HashMap;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+#[cfg(not(feature = "std"))]
+use alloc::string::String;
 
 /// Metadata collection for a GGUF file
 #[derive(Debug, Clone, Default)]
