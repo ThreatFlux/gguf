@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run OSV Scanner
-        uses: google/osv-scanner-action@v2
+        uses: google/osv-scanner-action@90b209d0ea55cea1da9fc0c4e65782cc6acb6e2e
         with:
           scan-args: |-
             --lockfile=Cargo.lock
