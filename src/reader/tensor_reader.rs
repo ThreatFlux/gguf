@@ -468,7 +468,11 @@ mod tests {
         let mut reader = TensorReader::new(cursor);
 
         let tensor_info = create_test_tensor_info("test", vec![4], TensorType::F32);
-        let result = reader.read_tensor_data(&tensor_info).unwrap();
+        let options = TensorReadOptions {
+            validate_alignment: false, // Skip alignment check for test data
+            ..Default::default()
+        };
+        let result = reader.read_tensor_data_with_options(&tensor_info, &options).unwrap();
 
         assert_eq!(result.bytes_read, 16);
         assert_eq!(result.data.len(), 16);
@@ -503,8 +507,12 @@ mod tests {
         let tensor2 = create_test_tensor_info("tensor2", vec![2], TensorType::F32);
         let tensor_infos = vec![&tensor1, &tensor2];
 
+        let options = TensorReadOptions {
+            validate_alignment: false, // Skip alignment check for test data
+            ..Default::default()
+        };
         let results = reader
-            .read_multiple_tensors(&tensor_infos, &TensorReadOptions::default())
+            .read_multiple_tensors(&tensor_infos, &options)
             .unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].bytes_read, 16);

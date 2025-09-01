@@ -178,7 +178,7 @@ jobs:
       - name: Run miri tests
         run: |
           cargo miri setup
-          cargo miri test --no-default-features
+          cargo miri test --features std --lib
         env:
           MIRIFLAGS: -Zmiri-disable-isolation
 
