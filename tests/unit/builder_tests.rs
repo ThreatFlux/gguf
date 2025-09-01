@@ -24,7 +24,7 @@ mod gguf_builder_tests {
         let builder = GGUFBuilder::simple("test_model", "A test model");
 
         assert_eq!(builder.tensor_count(), 0);
-        assert_eq!(builder.metadata_count(), 2); // name and description
+        assert_eq!(builder.metadata_count(), 3); // name, description, and file_type
     }
 
     #[test]

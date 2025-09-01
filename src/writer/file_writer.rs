@@ -301,8 +301,8 @@ impl<W: Write> GGUFFileWriter<W> {
         }
 
         // Add alignment padding to reach tensor data section
-        let aligned_position = align_to_default(predicted_position);
-        let mut current_data_offset = aligned_position as u64;
+        let _aligned_position = align_to_default(predicted_position);
+        let mut current_data_offset = 0u64; // Tensor offsets are relative to tensor data start
 
         // Create tensor infos with correct offsets
         let mut tensor_infos_with_offsets = Vec::new();

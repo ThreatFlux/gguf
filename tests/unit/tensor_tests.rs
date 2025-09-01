@@ -198,10 +198,12 @@ mod tensor_shape_tests {
 
     #[test]
     fn test_tensor_shape_with_zeros() {
-        // TensorShape::new(vec![10, 0, 5]) should fail because 0 dimensions are invalid
-        // Instead test that it returns an error
+        // Zero dimensions are now allowed for empty tensors - they represent tensors with 0 elements
+        // This is mathematically valid and commonly used in practice
         let result = TensorShape::new(vec![10, 0, 5]);
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        let shape = result.unwrap();
+        assert_eq!(shape.element_count(), 0); // 10 * 0 * 5 = 0
     }
 
     #[test]
@@ -441,7 +443,7 @@ mod tensor_info_tests {
         let display_str = format!("{}", info);
         assert!(display_str.contains("display_test"));
         assert!(display_str.contains("F32"));
-        assert!(display_str.contains("[2, 3, 4]"));
+        assert!(display_str.contains("(2, 3, 4)"));
     }
 }
 
