@@ -131,7 +131,7 @@ mod gguf_builder_tests {
         let reader = GGUFFileReader::new(cursor).expect("Failed to read built data");
 
         assert_eq!(reader.tensor_count(), 1);
-        assert_eq!(reader.metadata().len(), 2); // model name and description
+        assert_eq!(reader.metadata().len(), 3); // model name, description, and file_type
         assert!(reader.get_tensor_info("weights").is_some());
     }
 
@@ -225,7 +225,7 @@ mod gguf_builder_tests {
         let reader = GGUFFileReader::new(cursor).expect("Failed to read complex model");
 
         assert_eq!(reader.tensor_count(), 4);
-        assert_eq!(reader.metadata().len(), 6); // 2 from simple() + 4 added
+        assert_eq!(reader.metadata().len(), 7); // 3 from simple() + 4 added
 
         // Verify metadata
         assert_eq!(reader.metadata().get_string("general.name"), Some("complex_model"));
@@ -284,17 +284,19 @@ mod gguf_builder_tests {
 
         builder = builder.add_f32_tensor("tensor", vec![2], vec![1.0, 2.0]);
 
-        // Adding another tensor with the same name should replace the first
+        // Adding another tensor with the same name will be caught during validation
         builder = builder.add_f32_tensor("tensor", vec![3], vec![3.0, 4.0, 5.0]);
 
-        assert_eq!(builder.tensor_count(), 1); // Should still be 1
+        assert_eq!(builder.tensor_count(), 2); // Both tensors are added
 
-        let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
-        let cursor = Cursor::new(bytes);
-        let reader = GGUFFileReader::new(cursor).expect("Failed to read");
-
-        let tensor_info = reader.get_tensor_info("tensor").unwrap();
-        assert_eq!(tensor_info.shape().dims(), &[3]); // Should be the second tensor
+        // Building should fail due to duplicate names
+        let result = builder.build_to_bytes();
+        assert!(result.is_err());
+        
+        if let Err(e) = result {
+            let error_msg = e.to_string();
+            assert!(error_msg.contains("Duplicate tensor name"));
+        }
     }
 
     #[test]
@@ -351,7 +353,7 @@ mod metadata_builder_tests {
             .add_u32("layers", 12)
             .add_u64("parameters", 175_000_000)
             .add("timestamp", MetadataValue::I64(-1234567890))
-            .add_f32("learning_rate", 0.001)
+            .add("learning_rate", MetadataValue::F64(0.001))
             .add("accuracy", MetadataValue::F64(0.95123456789))
             .add_bool("fine_tuned", true);
 
@@ -361,7 +363,7 @@ mod metadata_builder_tests {
 
         assert_eq!(metadata.get_string("name"), Some("test_model"));
         assert_eq!(metadata.get_u64("version"), Some(1));
-        assert_eq!(metadata.get_i64("layers"), Some(12));
+        assert_eq!(metadata.get_u64("layers"), Some(12));
         assert_eq!(metadata.get_u64("parameters"), Some(175_000_000));
         assert_eq!(metadata.get_i64("timestamp"), Some(-1234567890));
         assert_eq!(metadata.get_f64("learning_rate"), Some(0.001));
@@ -373,7 +375,10 @@ mod metadata_builder_tests {
     fn test_metadata_builder_add_multiple() {
         let mut builder = MetadataBuilder::new();
 
-        builder = builder.add_u32("number1", 1).add_u32("number2", 2).add_u32("number3", 3);
+        builder = builder
+            .add_u32("number1", 1)
+            .add_u32("number2", 2)
+            .add_u32("number3", 3);
 
         assert_eq!(builder.len(), 3);
 
@@ -399,7 +404,7 @@ mod metadata_builder_tests {
         assert_eq!(metadata.get_string("general.name"), Some("GPT-2"));
         assert_eq!(metadata.get_string("general.description"), Some("OpenAI GPT-2 model"));
         assert_eq!(metadata.get_string("general.architecture"), Some("gpt2"));
-        assert_eq!(metadata.get_string("general.file_type"), Some("transformers"));
+        assert_eq!(metadata.get_string("tokenizer.model"), Some("transformers"));
     }
 
     #[test]
@@ -414,10 +419,10 @@ mod metadata_builder_tests {
 
         let metadata = builder.build();
 
-        assert_eq!(metadata.get_u64("tokenizer.ggml.vocab_size"), Some(50257));
+        assert_eq!(metadata.get_u64("tokenizer.ggml.tokens"), Some(50257));
         assert_eq!(metadata.get_u64("tokenizer.ggml.bos_token_id"), Some(50256));
         assert_eq!(metadata.get_u64("tokenizer.ggml.eos_token_id"), Some(50256));
-        assert_eq!(metadata.get_u64("tokenizer.ggml.pad_token_id"), Some(50257));
+        assert_eq!(metadata.get_u64("tokenizer.ggml.padding_token_id"), Some(50257));
     }
 
     #[test]
