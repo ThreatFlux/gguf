@@ -132,21 +132,21 @@ fn info_command(file: &PathBuf, detailed: bool, verbose: bool) -> Result<()> {
     let gguf_file = std::fs::File::open(file)
         .with_context(|| format!("Failed to open file: {}", file.display()))?;
 
-    let gguf = GGUFFile::read(gguf_file).with_context(|| "Failed to parse GGUF file")?;
+    let gguf = GGUFFileReader::new(gguf_file).with_context(|| "Failed to parse GGUF file")?;
 
     // Basic information
     println!("GGUF File Information");
     println!("=====================");
     println!("File: {}", file.display());
-    println!("GGUF Version: {}", gguf.version());
-    println!("Number of tensors: {}", gguf.tensors().len());
+    println!("GGUF Version: {}", gguf.header().version);
+    println!("Number of tensors: {}", gguf.tensor_count());
     println!("Number of metadata entries: {}", gguf.metadata().len());
 
     if detailed {
         println!("\nFile size: {} bytes", std::fs::metadata(file)?.len());
 
         // Calculate total tensor size
-        let total_tensor_bytes: u64 = gguf.tensors().iter().map(|t| t.data().len() as u64).sum();
+        let total_tensor_bytes: u64 = gguf.tensor_infos().iter().map(|t| t.expected_data_size()).sum();
         println!("Total tensor data: {} bytes", total_tensor_bytes);
 
         // Show some key metadata if available
@@ -174,12 +174,12 @@ fn tensors_command(
     let gguf_file = std::fs::File::open(file)
         .with_context(|| format!("Failed to open file: {}", file.display()))?;
 
-    let gguf = GGUFFile::read(gguf_file).with_context(|| "Failed to parse GGUF file")?;
+    let gguf = GGUFFileReader::new(gguf_file).with_context(|| "Failed to parse GGUF file")?;
 
     let tensors: Vec<_> = if let Some(pattern) = filter {
-        gguf.tensors().iter().filter(|t| t.name().contains(pattern)).collect()
+        gguf.tensor_infos().iter().filter(|t| t.name().contains(pattern)).collect()
     } else {
-        gguf.tensors().iter().collect()
+        gguf.tensor_infos().iter().collect()
     };
 
     if summary {
@@ -208,7 +208,7 @@ fn metadata_command(
     let gguf_file = std::fs::File::open(file)
         .with_context(|| format!("Failed to open file: {}", file.display()))?;
 
-    let gguf = GGUFFile::read(gguf_file).with_context(|| "Failed to parse GGUF file")?;
+    let gguf = GGUFFileReader::new(gguf_file).with_context(|| "Failed to parse GGUF file")?;
 
     let metadata: Vec<_> = if let Some(pattern) = key_filter {
         gguf.metadata().iter().filter(|(k, _)| k.contains(pattern)).collect()
@@ -256,7 +256,7 @@ fn validate_command(
     let gguf_file = std::fs::File::open(path)
         .with_context(|| format!("Failed to open file: {}", path.display()))?;
 
-    match GGUFFile::read(gguf_file) {
+    match GGUFFileReader::new(gguf_file) {
         Ok(_) => {
             #[cfg(feature = "color")]
             println!("{}: {}", path.display(), colored::Colorize::green("VALID"));
