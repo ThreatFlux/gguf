@@ -47,7 +47,7 @@ jobs:
         run: cargo install cargo-supply-chain
       
       - name: Check supply chain
-        run: cargo supply-chain
+        run: cargo supply-chain publishers
 
   dependency-review:
     name: Dependency Review
@@ -68,7 +68,7 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Run OSV Scanner
-        uses: google/osv-scanner-action@v1
+        uses: google/osv-scanner-action@v1.9.1
         with:
           scan-args: |-
             --lockfile=Cargo.lock
