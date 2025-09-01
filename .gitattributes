@@ -1,0 +1,17 @@
+* text=auto eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+
+# Binary files
+*.gguf binary
+*.bin binary
+*.so binary
+*.dylib binary
+*.dll binary
+*.exe binary

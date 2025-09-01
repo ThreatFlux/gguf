@@ -42,12 +42,12 @@ fn powi_f32(base: f32, exp: i32) -> f32 {
     let mut result = 1.0;
     let mut base = base;
     let mut exp = exp;
-    
+
     if exp < 0 {
         base = 1.0 / base;
         exp = -exp;
     }
-    
+
     while exp > 0 {
         if exp % 2 == 1 {
             result *= base;

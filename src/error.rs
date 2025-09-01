@@ -54,9 +54,12 @@ pub enum GGUFError {
     #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "std", error("Feature '{0}' is not available"))]
     FeatureUnavailable(String),
-    
+
     /// Operation requires allocation but alloc feature is not enabled
-    #[cfg_attr(feature = "std", error("Operation requires allocation but 'alloc' feature is not enabled"))]
+    #[cfg_attr(
+        feature = "std",
+        error("Operation requires allocation but 'alloc' feature is not enabled")
+    )]
     AllocationRequired,
 }
 

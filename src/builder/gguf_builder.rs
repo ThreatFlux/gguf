@@ -80,7 +80,7 @@ impl GGUFBuilder {
     /// # fn main() -> Result<()> {
     /// let builder = GGUFBuilder::new()
     ///     .add_tensor("weights", vec![2, 3], TensorType::F32, vec![0u8; 24])?;
-    /// 
+    ///
     /// assert_eq!(builder.tensor_count(), 1);
     /// assert!(builder.has_tensor("weights"));
     /// # Ok(())

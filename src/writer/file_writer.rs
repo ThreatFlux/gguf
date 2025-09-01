@@ -286,10 +286,39 @@ impl<W: Write> GGUFFileWriter<W> {
         // Write metadata
         let metadata_result = self.write_metadata(metadata)?;
 
-        // Write tensor infos
-        let tensor_infos: Vec<TensorInfoNew> =
-            tensors.iter().map(|(info, _)| info.clone()).collect();
-        let tensor_info_result = self.write_tensor_infos(&tensor_infos)?;
+        // Calculate proper tensor data offsets
+        // First, we need to predict where tensor data will start after tensor infos + alignment
+        let mut predicted_position = self.position as usize;
+
+        // Add size of tensor infos section
+        for (tensor_info, _) in tensors {
+            predicted_position += 8; // name length (u64)
+            predicted_position += tensor_info.name().len(); // name bytes
+            predicted_position += 4; // n_dimensions (u32)
+            predicted_position += tensor_info.shape().dims().len() * 8; // dimensions (u64s)
+            predicted_position += 4; // tensor_type (u32)
+            predicted_position += 8; // data_offset (u64)
+        }
+
+        // Add alignment padding to reach tensor data section
+        let aligned_position = align_to_default(predicted_position);
+        let mut current_data_offset = aligned_position as u64;
+
+        // Create tensor infos with correct offsets
+        let mut tensor_infos_with_offsets = Vec::new();
+        for (tensor_info, tensor_data) in tensors {
+            let tensor_info_with_offset = TensorInfoNew::new(
+                tensor_info.name().to_string(),
+                tensor_info.shape().clone(),
+                tensor_info.tensor_type(),
+                current_data_offset,
+            );
+            tensor_infos_with_offsets.push(tensor_info_with_offset);
+            current_data_offset += tensor_data.len() as u64;
+        }
+
+        // Write tensor infos with correct offsets
+        let tensor_info_result = self.write_tensor_infos(&tensor_infos_with_offsets)?;
 
         // Align for tensor data
         let alignment_result = self.align_for_tensor_data()?;

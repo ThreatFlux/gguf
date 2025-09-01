@@ -33,11 +33,8 @@ impl TensorShape {
             return Err(GGUFError::InvalidTensorData("Tensor shape cannot be empty".to_string()));
         }
 
-        if dimensions.contains(&0) {
-            return Err(GGUFError::InvalidTensorData(
-                "Tensor dimensions cannot be zero".to_string(),
-            ));
-        }
+        // Allow zero dimensions for empty tensors - they represent tensors with 0 elements
+        // This is mathematically valid and commonly used in practice
 
         // Check for reasonable dimension sizes to prevent overflow
         const MAX_REASONABLE_DIM: u64 = 1_000_000_000; // 1B elements per dimension
@@ -405,8 +402,8 @@ mod tests {
 
     #[test]
     fn test_tensor_shape_validation() {
-        assert!(TensorShape::new(vec![]).is_err()); // Empty
-        assert!(TensorShape::new(vec![0, 3]).is_err()); // Zero dimension
+        assert!(TensorShape::new(vec![]).is_err()); // Empty dimensions vector not allowed
+        assert!(TensorShape::new(vec![0, 3]).is_ok()); // Zero dimension now allowed for empty tensors
         assert!(TensorShape::new(vec![2, 3]).is_ok());
     }
 

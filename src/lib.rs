@@ -50,7 +50,7 @@
 //! # fn main() -> Result<()> {
 //! let data = example_data();
 //! let reader = GGUFFileReader::new(Cursor::new(data))?;
-//! 
+//!
 //! println!("GGUF version: {}", reader.header().version);
 //! println!("Metadata entries: {}", reader.metadata().len());
 //! println!("Tensors: {}", reader.tensor_count());

@@ -511,9 +511,7 @@ mod tests {
             validate_alignment: false, // Skip alignment check for test data
             ..Default::default()
         };
-        let results = reader
-            .read_multiple_tensors(&tensor_infos, &options)
-            .unwrap();
+        let results = reader.read_multiple_tensors(&tensor_infos, &options).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].bytes_read, 16);
         assert_eq!(results[1].bytes_read, 8);

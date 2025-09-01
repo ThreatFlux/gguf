@@ -209,11 +209,8 @@ impl TensorInfo {
             ));
         }
 
-        if self.dimensions.contains(&0) {
-            return Err(GGUFError::InvalidTensorData(
-                "All dimensions must be greater than zero".to_string(),
-            ));
-        }
+        // Allow zero dimensions for empty tensors - they represent tensors with 0 elements
+        // This is mathematically valid and commonly used in practice
 
         // Check for reasonable dimension sizes (prevent integer overflow)
         let max_dim_size = u64::MAX / (self.n_dimensions as u64 * 8); // Conservative limit
@@ -395,9 +392,9 @@ mod tests {
         let empty_name = TensorInfo::new("".to_string(), vec![2], 0, 0);
         assert!(empty_name.validate().is_err());
 
-        // Zero dimension
+        // Zero dimension (now allowed for empty tensors)
         let zero_dim = TensorInfo::new("test".to_string(), vec![2, 0], 0, 0);
-        assert!(zero_dim.validate().is_err());
+        assert!(zero_dim.validate().is_ok());
 
         // Mismatched dimension count
         let mut mismatched = TensorInfo::new("test".to_string(), vec![2, 3], 0, 0);

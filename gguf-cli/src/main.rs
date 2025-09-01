@@ -146,7 +146,8 @@ fn info_command(file: &PathBuf, detailed: bool, verbose: bool) -> Result<()> {
         println!("\nFile size: {} bytes", std::fs::metadata(file)?.len());
 
         // Calculate total tensor size
-        let total_tensor_bytes: u64 = gguf.tensor_infos().iter().map(|t| t.expected_data_size()).sum();
+        let total_tensor_bytes: u64 =
+            gguf.tensor_infos().iter().map(|t| t.expected_data_size()).sum();
         println!("Total tensor data: {} bytes", total_tensor_bytes);
 
         // Show some key metadata if available
