@@ -353,12 +353,12 @@ impl MetadataArray {
 
     /// Iterate over the values
     #[cfg(feature = "std")]
-    pub fn iter(&self) -> std::slice::Iter<MetadataValue> {
+    pub fn iter(&self) -> std::slice::Iter<'_, MetadataValue> {
         self.values.iter()
     }
 
     #[cfg(not(feature = "std"))]
-    pub fn iter(&self) -> slice::Iter<MetadataValue> {
+    pub fn iter(&self) -> slice::Iter<'_, MetadataValue> {
         self.values.iter()
     }
 }
@@ -402,34 +402,34 @@ impl Metadata {
 
     /// Iterate over key-value pairs
     #[cfg(feature = "std")]
-    pub fn iter(&self) -> std::collections::hash_map::Iter<String, MetadataValue> {
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, MetadataValue> {
         self.data.iter()
     }
 
     #[cfg(all(not(feature = "std"), feature = "alloc"))]
-    pub fn iter(&self) -> hashbrown::hash_map::Iter<String, MetadataValue> {
+    pub fn iter(&self) -> hashbrown::hash_map::Iter<'_, String, MetadataValue> {
         self.data.iter()
     }
 
     /// Get all keys
     #[cfg(feature = "std")]
-    pub fn keys(&self) -> std::collections::hash_map::Keys<String, MetadataValue> {
+    pub fn keys(&self) -> std::collections::hash_map::Keys<'_, String, MetadataValue> {
         self.data.keys()
     }
 
     #[cfg(all(not(feature = "std"), feature = "alloc"))]
-    pub fn keys(&self) -> hashbrown::hash_map::Keys<String, MetadataValue> {
+    pub fn keys(&self) -> hashbrown::hash_map::Keys<'_, String, MetadataValue> {
         self.data.keys()
     }
 
     /// Get all values
     #[cfg(feature = "std")]
-    pub fn values(&self) -> std::collections::hash_map::Values<String, MetadataValue> {
+    pub fn values(&self) -> std::collections::hash_map::Values<'_, String, MetadataValue> {
         self.data.values()
     }
 
     #[cfg(all(not(feature = "std"), feature = "alloc"))]
-    pub fn values(&self) -> hashbrown::hash_map::Values<String, MetadataValue> {
+    pub fn values(&self) -> hashbrown::hash_map::Values<'_, String, MetadataValue> {
         self.data.values()
     }
 }
