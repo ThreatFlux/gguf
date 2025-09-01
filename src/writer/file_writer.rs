@@ -1,4 +1,35 @@
 //! File-based GGUF writer
+//!
+//! This module provides low-level functionality for writing GGUF files.
+//! For most use cases, consider using the high-level `GGUFBuilder` instead.
+//!
+//! ## Example
+//!
+//! ```rust
+//! # use gguf::prelude::*;
+//! # use gguf::format::{GGUFHeader, Metadata};
+//! # use gguf::format::metadata::MetadataValue;
+//! # use gguf::tensor::{TensorInfo, TensorData, TensorShape, TensorType};
+//! # fn main() -> Result<()> {
+//! let mut buffer = Vec::new();
+//! let mut writer = GGUFFileWriter::new(&mut buffer);
+//!
+//! // Create metadata
+//! let mut metadata = Metadata::new();
+//! metadata.insert("name".to_string(), MetadataValue::String("test".to_string()));
+//!
+//! // Create tensor data
+//! let shape = TensorShape::new(vec![2, 2])?;
+//! let tensor_info = TensorInfo::new("weights".to_string(), shape, TensorType::F32, 0);
+//! let tensor_data = TensorData::new_owned(vec![0u8; 16]); // 4 F32 values
+//! let tensors = vec![(tensor_info, tensor_data)];
+//!
+//! // Write complete file
+//! let result = writer.write_complete_file(&metadata, &tensors)?;
+//! println!("Wrote {} bytes", result.total_bytes_written);
+//! # Ok(())
+//! # }
+//! ```
 
 use crate::error::{GGUFError, Result};
 use crate::format::{

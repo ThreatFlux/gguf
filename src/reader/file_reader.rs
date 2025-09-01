@@ -1,4 +1,43 @@
 //! File-based GGUF reader
+//!
+//! This module provides functionality for reading GGUF files from various sources.
+//!
+//! ## Example
+//!
+//! ```rust
+//! # use gguf::prelude::*;
+//! # use std::io::Cursor;
+//! # fn example_data() -> Vec<u8> {
+//! #     use gguf::format::constants::*;
+//! #     let mut data = Vec::new();
+//! #     // Header
+//! #     data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+//! #     data.extend_from_slice(&GGUF_VERSION.to_le_bytes());
+//! #     data.extend_from_slice(&0u64.to_le_bytes()); // 0 tensors
+//! #     data.extend_from_slice(&1u64.to_le_bytes()); // 1 metadata entry
+//! #     // Metadata
+//! #     data.extend_from_slice(&4u64.to_le_bytes()); // key length
+//! #     data.extend_from_slice(b"name"); // key
+//! #     data.extend_from_slice(&8u32.to_le_bytes()); // string type
+//! #     data.extend_from_slice(&5u64.to_le_bytes()); // value length
+//! #     data.extend_from_slice(b"model"); // value
+//! #     while data.len() % 32 != 0 { data.push(0); } // alignment
+//! #     data
+//! # }
+//! # fn main() -> Result<()> {
+//! let data = example_data();
+//! let mut reader = GGUFFileReader::new(Cursor::new(data))?;
+//!
+//! // Access file information
+//! println!("GGUF version: {}", reader.header().version);
+//! println!("Tensors: {}", reader.tensor_count());
+//!
+//! // Get a summary
+//! let summary = reader.summary();
+//! println!("Summary: {}", summary);
+//! # Ok(())
+//! # }
+//! ```
 
 #[cfg(feature = "std")]
 use crate::error::{GGUFError, Result};

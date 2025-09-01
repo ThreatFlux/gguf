@@ -1,4 +1,23 @@
 //! High-level GGUF file builder
+//!
+//! This module provides a high-level builder pattern for creating GGUF files.
+//!
+//! ## Example
+//!
+//! ```rust
+//! # use gguf::prelude::*;
+//! # use gguf::format::metadata::MetadataValue;
+//! # fn main() -> Result<()> {
+//! // Create a language model GGUF file
+//! let builder = GGUFBuilder::language_model("my_llm", 2048, 768)
+//!     .add_metadata("general.architecture", MetadataValue::String("llama".to_string()))
+//!     .add_f32_tensor("embedding.weight", vec![1000, 768], vec![0.0; 768_000]);
+//!
+//! let (bytes, result) = builder.build_to_bytes()?;
+//! println!("Built GGUF file: {} bytes", result.total_bytes_written);
+//! # Ok(())
+//! # }
+//! ```
 
 use crate::error::{GGUFError, Result};
 use crate::format::Metadata;
@@ -28,6 +47,15 @@ pub struct GGUFBuilder {
 
 impl GGUFBuilder {
     /// Create a new GGUF builder
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use gguf::prelude::*;
+    /// let builder = GGUFBuilder::new();
+    /// assert_eq!(builder.tensor_count(), 0);
+    /// assert_eq!(builder.metadata_count(), 0);
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
@@ -43,6 +71,21 @@ impl GGUFBuilder {
     }
 
     /// Add a tensor with data
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use gguf::prelude::*;
+    /// # use gguf::tensor::TensorType;
+    /// # fn main() -> Result<()> {
+    /// let builder = GGUFBuilder::new()
+    ///     .add_tensor("weights", vec![2, 3], TensorType::F32, vec![0u8; 24])?;
+    /// 
+    /// assert_eq!(builder.tensor_count(), 1);
+    /// assert!(builder.has_tensor("weights"));
+    /// # Ok(())
+    /// # }
+    /// ```
     pub fn add_tensor<N>(
         mut self,
         name: N,
