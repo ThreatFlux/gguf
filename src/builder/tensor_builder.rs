@@ -3,21 +3,30 @@
 use crate::error::{GGUFError, Result};
 use crate::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use hashbrown::HashMap;
 #[cfg(feature = "std")]
 use std::collections::HashMap;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{format, string::String, vec, vec::Vec};
 
 /// Builder for tensor collections
+#[cfg(any(feature = "std", feature = "alloc"))]
 #[derive(Debug, Default)]
 pub struct TensorCollectionBuilder {
     tensors: HashMap<String, (TensorInfo, TensorData)>,
 }
 
+/// Builder for tensor collections (no_std + no_alloc variant)
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+#[derive(Debug, Default)]
+pub struct TensorCollectionBuilder {
+    // Placeholder for no_std + no_alloc builds
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl TensorCollectionBuilder {
     /// Create a new tensor collection builder
     pub fn new() -> Self {
@@ -94,11 +103,62 @@ impl TensorCollectionBuilder {
     }
 }
 
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+impl TensorCollectionBuilder {
+    /// Create a new tensor collection builder (no-op for no_std + no_alloc)
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Add a tensor (returns error for no_std + no_alloc)
+    pub fn add_tensor<N>(
+        self,
+        _name: N,
+        _shape: &[u64],
+        _tensor_type: TensorType,
+        _data: &[u8],
+    ) -> Result<Self> {
+        Err(GGUFError::AllocationRequired)
+    }
+
+    /// Add tensor with TensorData (returns error for no_std + no_alloc)
+    pub fn add_tensor_data<N>(
+        self,
+        _name: N,
+        _shape: &[u64],
+        _tensor_type: TensorType,
+        _data: &TensorData,
+    ) -> Result<Self> {
+        Err(GGUFError::AllocationRequired)
+    }
+
+    /// Build the tensor collection (returns empty for no_std + no_alloc)
+    pub fn build(self) -> &'static [(TensorInfo, TensorData)] {
+        &[]
+    }
+
+    /// Get tensor count (always 0 for no_std + no_alloc)
+    pub fn len(&self) -> usize {
+        0
+    }
+
+    /// Check if empty (always true for no_std + no_alloc)
+    pub fn is_empty(&self) -> bool {
+        true
+    }
+
+    /// Check if tensor exists (always false for no_std + no_alloc)
+    pub fn contains(&self, _name: &str) -> bool {
+        false
+    }
+}
+
 /// Helper for creating common tensor patterns
 pub struct TensorPatterns;
 
 impl TensorPatterns {
     /// Create a weight matrix tensor
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn weight_matrix(
         name: String,
         input_dim: u64,
@@ -113,6 +173,7 @@ impl TensorPatterns {
     }
 
     /// Create a bias vector tensor
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn bias_vector(
         name: String,
         dim: u64,
@@ -126,6 +187,7 @@ impl TensorPatterns {
     }
 
     /// Create an embedding matrix
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn embedding_matrix(
         name: String,
         vocab_size: u64,

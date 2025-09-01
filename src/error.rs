@@ -3,9 +3,9 @@
 #[cfg(feature = "std")]
 use thiserror::Error;
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::string::String;
 
 /// Result type alias for GGUF operations
@@ -32,10 +32,12 @@ pub enum GGUFError {
     UnsupportedVersion(u32),
 
     /// Invalid tensor data
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "std", error("Invalid tensor data: {0}"))]
     InvalidTensorData(String),
 
     /// Invalid metadata
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "std", error("Invalid metadata: {0}"))]
     InvalidMetadata(String),
 
@@ -44,12 +46,18 @@ pub enum GGUFError {
     UnexpectedEof,
 
     /// Format error
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "std", error("Format error: {0}"))]
     Format(String),
 
     /// Feature not available
+    #[cfg(any(feature = "std", feature = "alloc"))]
     #[cfg_attr(feature = "std", error("Feature '{0}' is not available"))]
     FeatureUnavailable(String),
+    
+    /// Operation requires allocation but alloc feature is not enabled
+    #[cfg_attr(feature = "std", error("Operation requires allocation but 'alloc' feature is not enabled"))]
+    AllocationRequired,
 }
 
 #[cfg(not(feature = "std"))]
@@ -64,12 +72,19 @@ impl core::fmt::Display for GGUFError {
                 )
             }
             GGUFError::UnsupportedVersion(v) => write!(f, "Unsupported GGUF version: {}", v),
+            #[cfg(any(feature = "std", feature = "alloc"))]
             GGUFError::InvalidTensorData(msg) => write!(f, "Invalid tensor data: {}", msg),
+            #[cfg(any(feature = "std", feature = "alloc"))]
             GGUFError::InvalidMetadata(msg) => write!(f, "Invalid metadata: {}", msg),
             GGUFError::UnexpectedEof => write!(f, "Unexpected end of file"),
+            #[cfg(any(feature = "std", feature = "alloc"))]
             GGUFError::Format(msg) => write!(f, "Format error: {}", msg),
+            #[cfg(any(feature = "std", feature = "alloc"))]
             GGUFError::FeatureUnavailable(feature) => {
                 write!(f, "Feature '{}' is not available", feature)
+            }
+            GGUFError::AllocationRequired => {
+                write!(f, "Operation requires allocation but 'alloc' feature is not enabled")
             }
         }
     }

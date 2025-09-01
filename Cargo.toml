@@ -36,8 +36,9 @@ memmap2 = { version = "0.9", optional = true }
 
 [features]
 default = ["std"]
-std = ["serde/std", "thiserror", "hashbrown"]
-alloc = ["hashbrown", "libm"]
+std = ["serde/std", "thiserror", "alloc"]
+# Core allocation support - essentially required for any meaningful functionality
+alloc = ["hashbrown", "libm", "serde?/alloc"]
 async = ["dep:tokio", "std"]
 mmap = ["dep:memmap2", "std"]
 

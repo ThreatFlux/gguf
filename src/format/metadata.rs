@@ -18,16 +18,16 @@ use std::io::{Read, Write};
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
     boxed::Box,
     format,
     string::{String, ToString},
     vec::Vec,
 };
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use hashbrown::HashMap;
 
 // Import core modules for no_std compatibility
@@ -80,10 +80,27 @@ pub struct MetadataArray {
 
 /// Collection of metadata key-value pairs
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Metadata {
     /// Metadata key-value pairs
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub data: HashMap<String, MetadataValue>,
+    #[cfg(not(any(feature = "std", feature = "alloc")))]
+    pub data: (), // Placeholder for no_std + no_alloc builds
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl Default for Metadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+impl Default for Metadata {
+    fn default() -> Self {
+        Self { data: () }
+    }
 }
 
 impl MetadataValue {
@@ -185,6 +202,7 @@ impl MetadataValue {
     }
 
     /// Convert to a string representation for display
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn to_string_representation(&self) -> String {
         match self {
             MetadataValue::U8(v) => v.to_string(),
@@ -249,6 +267,7 @@ impl MetadataValue {
 
 impl MetadataArray {
     /// Create a new metadata array
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn new(element_type: GGUFValueType, values: Vec<MetadataValue>) -> Result<Self> {
         // Validate that all values have the same type as specified
         for value in &values {
@@ -267,6 +286,11 @@ impl MetadataArray {
         }
 
         Ok(Self { element_type, length, values })
+    }
+
+    #[cfg(not(any(feature = "std", feature = "alloc")))]
+    pub fn new(_element_type: GGUFValueType, _values: &[MetadataValue]) -> Result<Self> {
+        Err(GGUFError::AllocationRequired)
     }
 
     /// Calculate the serialized size of this array
@@ -339,6 +363,7 @@ impl MetadataArray {
     }
 }
 
+#[cfg(any(feature = "std", feature = "alloc"))]
 impl Metadata {
     /// Create a new empty metadata collection
     pub fn new() -> Self {
@@ -381,7 +406,7 @@ impl Metadata {
         self.data.iter()
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
     pub fn iter(&self) -> hashbrown::hash_map::Iter<String, MetadataValue> {
         self.data.iter()
     }
@@ -392,7 +417,7 @@ impl Metadata {
         self.data.keys()
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
     pub fn keys(&self) -> hashbrown::hash_map::Keys<String, MetadataValue> {
         self.data.keys()
     }
@@ -403,11 +428,52 @@ impl Metadata {
         self.data.values()
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(not(feature = "std"), feature = "alloc"))]
     pub fn values(&self) -> hashbrown::hash_map::Values<String, MetadataValue> {
         self.data.values()
     }
+}
 
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+impl Metadata {
+    /// Create a new empty metadata collection (no-op for no_std + no_alloc)
+    pub fn new() -> Self {
+        Self { data: () }
+    }
+
+    /// Insert a key-value pair (no-op for no_std + no_alloc)
+    pub fn insert(&mut self, _key: String, _value: MetadataValue) {
+        // No-op: can't store data without allocation
+    }
+
+    /// Get a value by key (always returns None for no_std + no_alloc)
+    pub fn get(&self, _key: &str) -> Option<&MetadataValue> {
+        None
+    }
+
+    /// Remove a key-value pair (always returns None for no_std + no_alloc)
+    pub fn remove(&mut self, _key: &str) -> Option<MetadataValue> {
+        None
+    }
+
+    /// Check if a key exists (always returns false for no_std + no_alloc)
+    pub fn contains_key(&self, _key: &str) -> bool {
+        false
+    }
+
+    /// Get the number of key-value pairs (always 0 for no_std + no_alloc)
+    pub fn len(&self) -> usize {
+        0
+    }
+
+    /// Check if the metadata is empty (always true for no_std + no_alloc)
+    pub fn is_empty(&self) -> bool {
+        true
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+impl Metadata {
     /// Read metadata from a reader
     #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R, count: u64) -> Result<Self> {

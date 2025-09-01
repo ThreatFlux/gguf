@@ -4,15 +4,15 @@ use crate::error::{GGUFError, Result};
 use crate::format::types::GGUFTensorType as TensorType;
 use crate::tensor::{TensorData, TensorShape};
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use hashbrown::HashMap;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use alloc::{
     format,
     string::{String, ToString},
@@ -22,7 +22,7 @@ use alloc::{
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]
 use core::fmt;
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 use libm::{powf, sqrtf};
 
 // Helper function for exponentiation that works in both std and no_std
@@ -31,9 +31,31 @@ fn powi_f32(base: f32, exp: i32) -> f32 {
     base.powi(exp)
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 fn powi_f32(base: f32, exp: i32) -> f32 {
     powf(base, exp as f32)
+}
+
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+fn powi_f32(base: f32, exp: i32) -> f32 {
+    // Fallback implementation for no_std + no_alloc
+    let mut result = 1.0;
+    let mut base = base;
+    let mut exp = exp;
+    
+    if exp < 0 {
+        base = 1.0 / base;
+        exp = -exp;
+    }
+    
+    while exp > 0 {
+        if exp % 2 == 1 {
+            result *= base;
+        }
+        base *= base;
+        exp /= 2;
+    }
+    result
 }
 
 // Helper function for sqrt that works in both std and no_std
@@ -42,9 +64,22 @@ fn sqrt_f32(x: f32) -> f32 {
     x.sqrt()
 }
 
-#[cfg(not(feature = "std"))]
+#[cfg(all(not(feature = "std"), feature = "alloc"))]
 fn sqrt_f32(x: f32) -> f32 {
     sqrtf(x)
+}
+
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+fn sqrt_f32(x: f32) -> f32 {
+    // Newton-Raphson method for square root
+    if x == 0.0 {
+        return 0.0;
+    }
+    let mut guess = x / 2.0;
+    for _ in 0..10 {
+        guess = (guess + x / guess) / 2.0;
+    }
+    guess
 }
 
 /// Complete information about a tensor
@@ -238,10 +273,13 @@ impl TensorInfo {
             let actual_size = data.len();
 
             if actual_size != expected_size {
+                #[cfg(any(feature = "std", feature = "alloc"))]
                 return Err(GGUFError::InvalidTensorData(format!(
                     "Tensor '{}' data size mismatch: expected {} bytes, got {} bytes",
                     self.name, expected_size, actual_size
                 )));
+                #[cfg(not(any(feature = "std", feature = "alloc")))]
+                return Err(GGUFError::AllocationRequired);
             }
         }
 
@@ -349,6 +387,7 @@ impl TensorInfo {
     }
 
     /// Get a human-readable summary
+    #[cfg(any(feature = "std", feature = "alloc"))]
     pub fn summary(&self) -> String {
         format!(
             "Tensor '{}': {} ({}), {} elements, offset: {}{}",
