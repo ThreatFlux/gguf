@@ -292,7 +292,7 @@ mod gguf_builder_tests {
         // Building should fail due to duplicate names
         let result = builder.build_to_bytes();
         assert!(result.is_err());
-        
+
         if let Err(e) = result {
             let error_msg = e.to_string();
             assert!(error_msg.contains("Duplicate tensor name"));
@@ -375,10 +375,7 @@ mod metadata_builder_tests {
     fn test_metadata_builder_add_multiple() {
         let mut builder = MetadataBuilder::new();
 
-        builder = builder
-            .add_u32("number1", 1)
-            .add_u32("number2", 2)
-            .add_u32("number3", 3);
+        builder = builder.add_u32("number1", 1).add_u32("number2", 2).add_u32("number3", 3);
 
         assert_eq!(builder.len(), 3);
 

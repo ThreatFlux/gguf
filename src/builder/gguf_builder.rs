@@ -209,7 +209,7 @@ impl GGUFBuilder {
     pub fn build_to_writer<W: Write>(self, writer: W) -> Result<GGUFWriteResult> {
         // Validate before building
         self.validate()?;
-        
+
         let config = self.config.unwrap_or_default();
         let mut gguf_writer = GGUFFileWriter::with_config(writer, config);
 
