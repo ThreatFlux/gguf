@@ -21,7 +21,6 @@ jobs:
         with:
           log-level: warn
           command: check
-          arguments: --all-features
 
   security-audit:
     name: Security Audit

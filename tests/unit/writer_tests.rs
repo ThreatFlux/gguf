@@ -100,7 +100,7 @@ mod file_writer_tests {
         );
 
         writer
-            .write_tensor_infos(&[tensor_info.clone()])
+            .write_tensor_infos(std::slice::from_ref(&tensor_info))
             .expect("Failed to write tensor info");
 
         assert!(writer.position() > 0);
@@ -190,7 +190,7 @@ mod file_writer_tests {
             0, // Will be updated later
         );
         writer
-            .write_tensor_infos(&[tensor_info.clone()])
+            .write_tensor_infos(std::slice::from_ref(&tensor_info))
             .expect("Failed to write tensor info");
 
         // Align before tensor data
