@@ -145,7 +145,7 @@ fn test_complete_workflow() {
         result.tensor_results.len()
     );
     assert!(result.total_bytes_written > 1_000_000); // Should be substantial
-    assert_eq!(result.tensor_results.len(), 1 + 12 * 8 + 2); // embedding + 12 layers * 8 tensors + final norm + output
+    assert_eq!(result.tensor_results.len(), 1 + 12 * 10 + 3); // embedding + 12 layers * 10 tensors + final norm + output
 
     // Read back and verify
     let reader = gguf::reader::open_gguf_file(temp_file.path()).expect("Failed to read model");
@@ -155,7 +155,12 @@ fn test_complete_workflow() {
     assert_eq!(reader.metadata().get_u64("model.layers"), Some(12));
     assert_eq!(reader.metadata().get_u64("model.parameters"), Some(175_000_000));
     assert_eq!(reader.metadata().get_bool("model.fine_tuned"), Some(false));
-    assert_eq!(reader.metadata().get_f64("training.learning_rate"), Some(0.0001));
+    let learning_rate = reader.metadata().get_f64("training.learning_rate").unwrap();
+    assert!(
+        (learning_rate - 0.0001).abs() < 1e-6,
+        "Learning rate should be approximately 0.0001, got {}",
+        learning_rate
+    );
 
     // Verify tensors exist and have correct shapes
     assert!(reader.get_tensor_info("token_embd.weight").is_some());

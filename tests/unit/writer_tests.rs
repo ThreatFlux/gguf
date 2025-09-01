@@ -57,7 +57,7 @@ mod file_writer_tests {
         let cursor = Cursor::new(&mut buffer);
 
         let mut writer = GGUFFileWriter::new(cursor);
-        
+
         // Write header first (required before writing metadata)
         let header = GGUFHeader::new(2, 0); // 2 metadata items, 0 tensors
         writer.write_header(&header).expect("Failed to write header");
@@ -87,7 +87,7 @@ mod file_writer_tests {
         let cursor = Cursor::new(&mut buffer);
 
         let mut writer = GGUFFileWriter::new(cursor);
-        
+
         // Write header first (required before writing tensor info)
         let header = GGUFHeader::new(0, 1); // 0 metadata items, 1 tensor
         writer.write_header(&header).expect("Failed to write header");
@@ -121,7 +121,7 @@ mod file_writer_tests {
         let cursor = Cursor::new(&mut buffer);
 
         let mut writer = GGUFFileWriter::new(cursor);
-        
+
         // Must align for tensor data first
         writer.align_for_tensor_data().expect("Failed to align for tensor data");
 
