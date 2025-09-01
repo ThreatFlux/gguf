@@ -75,19 +75,19 @@ jobs:
         run: cargo build --verbose --all-features
 
       - name: Build (no default features)
-        run: cargo build --verbose --no-default-features
+        run: cargo build --verbose --no-default-features --features alloc
 
       - name: Build (with async)
-        run: cargo build --verbose --no-default-features --features async
+        run: cargo build --verbose --no-default-features --features alloc,async
 
       - name: Build (with mmap)
-        run: cargo build --verbose --no-default-features --features mmap
+        run: cargo build --verbose --no-default-features --features alloc,mmap
 
       - name: Run tests
         run: cargo test --verbose --all-features
 
       - name: Run tests (no default features)
-        run: cargo test --verbose --no-default-features
+        run: cargo test --verbose --no-default-features --features alloc
 
       - name: Build examples
         run: cargo build --examples --all-features
