@@ -153,10 +153,11 @@ mod tests {
     #[test]
     fn test_mmap_reader() {
         let data = vec![0x47, 0x47, 0x55, 0x46, 0x03, 0x00, 0x00, 0x00]; // GGUF magic + version 3
-        let _file = File::create("/tmp/test_gguf").unwrap();
-        std::fs::write("/tmp/test_gguf", &data).unwrap();
+        let mut temp_file = NamedTempFile::new().unwrap();
+        temp_file.write_all(&data).unwrap();
+        temp_file.flush().unwrap();
 
-        let file = File::open("/tmp/test_gguf").unwrap();
+        let file = File::open(temp_file.path()).unwrap();
         let mmap = unsafe { Mmap::map(&file).unwrap() };
         let mmap = Arc::new(mmap);
 
@@ -171,8 +172,7 @@ mod tests {
         assert_eq!(version, 3);
         assert_eq!(reader.position(), 8);
 
-        // Clean up
-        std::fs::remove_file("/tmp/test_gguf").ok();
+        // temp_file automatically cleans up when dropped
     }
 }
 
