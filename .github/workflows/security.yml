@@ -69,16 +69,3 @@ jobs:
       
       - name: Run OSV Scanner
         uses: google/osv-scanner-action@90b209d0ea55cea1da9fc0c4e65782cc6acb6e2e
-        with:
-          scan-args: |-
-            --lockfile=Cargo.lock
-            --format=json
-            --output=osv-results.json
-      
-      - name: Upload OSV results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: osv-results
-          path: osv-results.json
-          retention-days: 90
