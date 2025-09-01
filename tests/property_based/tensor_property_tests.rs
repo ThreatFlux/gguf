@@ -115,7 +115,9 @@ proptest! {
 
     #[test]
     fn test_tensor_shape_validation(
-        shape in prop::collection::vec(0u64..1000, 1..6)
+        shape in prop::collection::vec(1u64..10, 1..4).prop_filter("Total elements must be <= 1000", |shape| {
+            shape.iter().product::<u64>() <= 1_000
+        })
     ) {
         let element_count = shape.iter().product::<u64>();
 

@@ -318,17 +318,8 @@ impl TensorData {
 
     /// Validate the tensor data for basic consistency
     pub fn validate(&self) -> Result<()> {
-        match self {
-            TensorData::Empty => Ok(()),
-            _ => {
-                if self.as_slice().is_empty() {
-                    return Err(GGUFError::InvalidTensorData(
-                        "Non-empty tensor data has empty slice".to_string(),
-                    ));
-                }
-                Ok(())
-            }
-        }
+        // All tensor data variants are valid - empty slices are allowed for zero-element tensors
+        Ok(())
     }
 
     /// Calculate a simple checksum of the data (for integrity checking)

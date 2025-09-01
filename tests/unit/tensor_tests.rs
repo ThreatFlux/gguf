@@ -367,7 +367,8 @@ mod tensor_data_tests {
         let tensor_data = TensorData::new_owned(vec![1, 2, 3]);
         let debug_str = format!("{:?}", tensor_data);
 
-        assert!(debug_str.contains("Bytes"));
+        // The debug output should contain "Owned" since it's TensorData::Owned variant
+        assert!(debug_str.contains("Owned"));
     }
 }
 

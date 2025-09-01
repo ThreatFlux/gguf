@@ -362,9 +362,10 @@ mod alignment_tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_alignment_zero_panics() {
-        align_to(10, 0);
+    fn test_alignment_zero_graceful() {
+        // Zero alignment should return the original position
+        assert_eq!(align_to(10, 0), 10);
+        assert_eq!(calculate_padding(10, 0), 0);
     }
 }
 

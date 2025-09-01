@@ -67,7 +67,7 @@ mod file_reader_tests {
 
     #[test]
     fn test_file_reader_creation() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
@@ -79,7 +79,7 @@ mod file_reader_tests {
 
     #[test]
     fn test_file_reader_tensor_info() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
@@ -96,7 +96,7 @@ mod file_reader_tests {
 
     #[test]
     fn test_file_reader_tensor_data_loading() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
@@ -121,7 +121,7 @@ mod file_reader_tests {
 
     #[test]
     fn test_file_reader_nonexistent_tensor() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
@@ -129,13 +129,13 @@ mod file_reader_tests {
         assert!(reader.get_tensor_info("nonexistent").is_none());
 
         let result = reader.load_tensor_data("nonexistent");
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_none());
+        // Should return an error for nonexistent tensors
+        assert!(result.is_err(), "Expected error for nonexistent tensor");
     }
 
     #[test]
     fn test_file_reader_tensor_iteration() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
@@ -150,7 +150,7 @@ mod file_reader_tests {
 
     #[test]
     fn test_file_reader_from_file() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
 
         let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
         temp_file.write_all(&data).expect("Failed to write test data");
@@ -183,12 +183,66 @@ mod file_reader_tests {
     }
 }
 
+// Helper function to create test data with two tensors
+fn create_test_gguf_data_two_tensors() -> Vec<u8> {
+    let mut data = Vec::new();
+
+    // Header
+    data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+    data.extend_from_slice(&GGUF_VERSION.to_le_bytes());
+    data.extend_from_slice(&2u64.to_le_bytes()); // tensor_count
+    data.extend_from_slice(&1u64.to_le_bytes()); // metadata_count
+
+    // Metadata entry
+    data.extend_from_slice(&8u64.to_le_bytes()); // key length
+    data.extend_from_slice(b"test_key");
+    data.extend_from_slice(&(GGUFValueType::String as u32).to_le_bytes()); // value type
+    data.extend_from_slice(&10u64.to_le_bytes()); // value length
+    data.extend_from_slice(b"test_value");
+
+    // Tensor info entries
+    // First tensor: "tensor1"
+    data.extend_from_slice(&7u64.to_le_bytes()); // name length
+    data.extend_from_slice(b"tensor1");
+    data.extend_from_slice(&2u32.to_le_bytes()); // dimensions
+    data.extend_from_slice(&10u64.to_le_bytes()); // dim 0
+    data.extend_from_slice(&5u64.to_le_bytes()); // dim 1
+    data.extend_from_slice(&(GGUFTensorType::F32 as u32).to_le_bytes()); // tensor type
+    data.extend_from_slice(&0u64.to_le_bytes()); // offset
+
+    // Second tensor: "tensor2"
+    data.extend_from_slice(&7u64.to_le_bytes()); // name length
+    data.extend_from_slice(b"tensor2");
+    data.extend_from_slice(&1u32.to_le_bytes()); // dimensions
+    data.extend_from_slice(&20u64.to_le_bytes()); // dim 0
+    data.extend_from_slice(&(GGUFTensorType::I32 as u32).to_le_bytes()); // tensor type
+    data.extend_from_slice(&200u64.to_le_bytes()); // offset
+
+    // Align to 32 bytes
+    while data.len() % 32 != 0 {
+        data.push(0);
+    }
+
+    // Tensor data
+    // tensor1: 10*5 F32 values = 200 bytes
+    for i in 0..50 {
+        data.extend_from_slice(&(i as f32).to_le_bytes());
+    }
+
+    // tensor2: 20 I32 values = 80 bytes
+    for i in 0..20i32 {
+        data.extend_from_slice(&i.to_le_bytes());
+    }
+
+    data
+}
+
 mod stream_reader_tests {
     use super::*;
 
     #[test]
     fn test_stream_reader_basic() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFStreamReader::new(cursor).expect("Failed to create stream reader");
@@ -199,7 +253,7 @@ mod stream_reader_tests {
 
     #[test]
     fn test_stream_reader_read_header() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFStreamReader::new(cursor).expect("Failed to create reader");
@@ -213,7 +267,7 @@ mod stream_reader_tests {
 
     #[test]
     fn test_stream_reader_read_metadata() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         // Create reader which automatically reads header and metadata
@@ -226,7 +280,7 @@ mod stream_reader_tests {
 
     #[test]
     fn test_stream_reader_read_tensor_info() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFStreamReader::new(cursor).expect("Failed to create reader");
@@ -239,7 +293,7 @@ mod stream_reader_tests {
 
     #[test]
     fn test_stream_reader_sequential() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let reader = GGUFStreamReader::new(cursor).expect("Failed to create reader");
@@ -258,7 +312,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_creation() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -269,7 +323,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_get_info() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -284,7 +338,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_load_data() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -299,7 +353,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_load_all() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -331,7 +385,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_selective_loading() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -347,7 +401,7 @@ mod tensor_reader_tests {
 
     #[test]
     fn test_tensor_reader_iterator() {
-        let data = create_test_gguf_data();
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let file_reader = GGUFFileReader::new(cursor).expect("Failed to create file reader");
@@ -433,8 +487,8 @@ mod error_handling_tests {
 
     #[test]
     fn test_reader_seek_error() {
-        // Create a cursor that can't seek beyond its data
-        let data = vec![0u8; 100];
+        // Create valid test data for the reader
+        let data = create_test_gguf_data_two_tensors();
         let cursor = Cursor::new(data);
 
         let mut reader = GGUFStreamReader::new(cursor).expect("Failed to create reader");
