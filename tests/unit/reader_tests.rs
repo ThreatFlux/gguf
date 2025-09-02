@@ -1,13 +1,13 @@
 //! Unit tests for the reader module
 
 #[cfg(feature = "std")]
-use gguf_rs::format::{GGUFTensorType, GGUFValueType};
+use gguf_rs_lib::format::{GGUFTensorType, GGUFValueType};
 #[cfg(feature = "std")]
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 #[cfg(feature = "std")]
-use gguf_rs::reader::*;
+use gguf_rs_lib::reader::*;
 #[cfg(feature = "std")]
-use gguf_rs::tensor::TensorType;
+use gguf_rs_lib::tensor::TensorType;
 #[cfg(feature = "std")]
 use std::io::Cursor;
 #[cfg(feature = "std")]

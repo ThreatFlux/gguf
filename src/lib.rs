@@ -8,9 +8,9 @@
 //! ### Creating a GGUF file
 //!
 //! ```rust
-//! # use gguf_rs::prelude::*;
-//! # use gguf_rs::format::metadata::MetadataValue;
-//! # use gguf_rs::tensor::TensorType;
+//! # use gguf_rs_lib::prelude::*;
+//! # use gguf_rs_lib::format::metadata::MetadataValue;
+//! # use gguf_rs_lib::tensor::TensorType;
 //! # fn main() -> Result<()> {
 //! // Create a simple GGUF file
 //! let builder = GGUFBuilder::simple("my_model", "A test model")
@@ -26,11 +26,11 @@
 //! ### Reading a GGUF file
 //!
 //! ```rust
-//! # use gguf_rs::prelude::*;
+//! # use gguf_rs_lib::prelude::*;
 //! # use std::io::Cursor;
 //! # fn example_data() -> Vec<u8> {
 //! #     // Create minimal valid GGUF data for testing
-//! #     use gguf_rs::format::constants::*;
+//! #     use gguf_rs_lib::format::constants::*;
 //! #     let mut data = Vec::new();
 //! #     // Header: magic, version, tensor_count, metadata_count
 //! #     data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());

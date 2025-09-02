@@ -3,7 +3,7 @@
 //! This example demonstrates how to read a GGUF file asynchronously.
 
 #[cfg(feature = "async")]
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 #[cfg(feature = "async")]
 use std::env;
 
@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     // Convert tokio::fs::File to std::fs::File for now
     // TODO: Implement actual async GGUF reading
     let std_file = file.into_std().await;
-    let reader = gguf_rs::reader::file_reader::GGUFFileReader::new(std_file)?;
+    let reader = gguf_rs_lib::reader::file_reader::GGUFFileReader::new(std_file)?;
 
     // Display basic file information
     println!("\n=== GGUF File Information ===");
@@ -98,7 +98,7 @@ mod tests {
 
         // For now, test the sync reader since async isn't fully implemented
         let cursor = Cursor::new(data);
-        let reader = gguf_rs::reader::file_reader::GGUFFileReader::new(cursor).unwrap();
+        let reader = gguf_rs_lib::reader::file_reader::GGUFFileReader::new(cursor).unwrap();
 
         assert_eq!(reader.header().version, 3);
         assert_eq!(reader.header().tensor_count, 0);

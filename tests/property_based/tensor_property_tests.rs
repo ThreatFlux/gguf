@@ -1,7 +1,7 @@
 //! Property-based tests for tensor operations
 
-use gguf_rs::prelude::*;
-use gguf_rs::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+use gguf_rs_lib::prelude::*;
+use gguf_rs_lib::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 use proptest::prelude::*;
 use std::io::Cursor;
 

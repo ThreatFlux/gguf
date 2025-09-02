@@ -1,6 +1,6 @@
 //! Quantization-specific integration tests
 
-use gguf_rs::tensor::TensorType;
+use gguf_rs_lib::tensor::TensorType;
 
 #[test]
 fn test_quantization_basic() {

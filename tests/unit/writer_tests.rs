@@ -1,13 +1,13 @@
 //! Unit tests for the writer module
 
 #[cfg(feature = "std")]
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 #[cfg(feature = "std")]
-use gguf_rs::reader::GGUFFileReader;
+use gguf_rs_lib::reader::GGUFFileReader;
 #[cfg(feature = "std")]
-use gguf_rs::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+use gguf_rs_lib::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 #[cfg(feature = "std")]
-use gguf_rs::writer::*;
+use gguf_rs_lib::writer::*;
 #[cfg(feature = "std")]
 use std::io::Cursor;
 #[cfg(feature = "std")]
@@ -319,7 +319,7 @@ mod stream_writer_tests {
         let writer = GGUFStreamWriter::new(cursor);
 
         assert_eq!(writer.position(), 0);
-        assert!(matches!(writer.state(), gguf_rs::writer::WriterState::Ready));
+        assert!(matches!(writer.state(), gguf_rs_lib::writer::WriterState::Ready));
     }
 
     #[test]

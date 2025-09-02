@@ -3,13 +3,13 @@
 #![recursion_limit = "2048"]
 
 #[cfg(feature = "std")]
-use gguf_rs::format::MetadataValue;
+use gguf_rs_lib::format::MetadataValue;
 #[cfg(feature = "std")]
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 #[cfg(feature = "std")]
-use gguf_rs::reader::GGUFFileReader;
+use gguf_rs_lib::reader::GGUFFileReader;
 #[cfg(feature = "std")]
-use gguf_rs::tensor::{TensorData, TensorInfo, TensorType};
+use gguf_rs_lib::tensor::{TensorData, TensorInfo, TensorType};
 #[cfg(feature = "std")]
 use std::io::Cursor;
 #[cfg(feature = "std")]
@@ -146,7 +146,7 @@ fn test_tensor_type_properties() {
 #[test]
 fn test_tensor_creation_and_properties() {
     let data = TensorData::new_owned(vec![1, 2, 3, 4, 5, 6, 7, 8]);
-    let shape = gguf_rs::tensor::TensorShape::new(vec![2, 1]).unwrap();
+    let shape = gguf_rs_lib::tensor::TensorShape::new(vec![2, 1]).unwrap();
     let mut tensor = TensorInfo::new("test_tensor".to_string(), shape, TensorType::F32, 0);
     tensor.set_data(data.clone());
 

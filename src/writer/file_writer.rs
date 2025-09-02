@@ -6,10 +6,10 @@
 //! ## Example
 //!
 //! ```rust
-//! # use gguf_rs::prelude::*;
-//! # use gguf_rs::format::{GGUFHeader, Metadata};
-//! # use gguf_rs::format::metadata::MetadataValue;
-//! # use gguf_rs::tensor::{TensorInfo, TensorData, TensorShape, TensorType};
+//! # use gguf_rs_lib::prelude::*;
+//! # use gguf_rs_lib::format::{GGUFHeader, Metadata};
+//! # use gguf_rs_lib::format::metadata::MetadataValue;
+//! # use gguf_rs_lib::tensor::{TensorInfo, TensorData, TensorShape, TensorType};
 //! # fn main() -> Result<()> {
 //! let mut buffer = Vec::new();
 //! let mut writer = GGUFFileWriter::new(&mut buffer);

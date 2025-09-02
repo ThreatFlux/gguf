@@ -1,15 +1,15 @@
 //! Unit tests for the builder module
 
 #[cfg(feature = "std")]
-use gguf_rs::builder::*;
+use gguf_rs_lib::builder::*;
 #[cfg(feature = "std")]
-use gguf_rs::format::MetadataValue;
+use gguf_rs_lib::format::MetadataValue;
 #[cfg(feature = "std")]
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 #[cfg(feature = "std")]
-use gguf_rs::reader::GGUFFileReader;
+use gguf_rs_lib::reader::GGUFFileReader;
 #[cfg(feature = "std")]
-use gguf_rs::tensor::{TensorData, TensorShape, TensorType};
+use gguf_rs_lib::tensor::{TensorData, TensorShape, TensorType};
 #[cfg(feature = "std")]
 use std::io::Cursor;
 #[cfg(feature = "std")]
@@ -161,7 +161,7 @@ mod gguf_builder_tests {
         // assert_eq!(result.metadata_count, 2);
 
         // Verify file was created and can be read
-        use gguf_rs::reader::open_gguf_file;
+        use gguf_rs_lib::reader::open_gguf_file;
         let reader = open_gguf_file(file_path).expect("Failed to read file");
 
         assert_eq!(reader.tensor_count(), 1);

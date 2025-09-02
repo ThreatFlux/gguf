@@ -1,6 +1,6 @@
 //! Format conversion and compatibility tests
 
-use gguf_rs::prelude::*;
+use gguf_rs_lib::prelude::*;
 use std::io::Cursor;
 use tempfile::NamedTempFile;
 

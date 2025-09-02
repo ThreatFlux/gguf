@@ -5,8 +5,8 @@
 //! ## Example
 //!
 //! ```rust
-//! # use gguf_rs::prelude::*;
-//! # use gguf_rs::format::metadata::MetadataValue;
+//! # use gguf_rs_lib::prelude::*;
+//! # use gguf_rs_lib::format::metadata::MetadataValue;
 //! # fn main() -> Result<()> {
 //! // Create a language model GGUF file
 //! let builder = GGUFBuilder::language_model("my_llm", 2048, 768)
@@ -51,7 +51,7 @@ impl GGUFBuilder {
     /// # Example
     ///
     /// ```rust
-    /// # use gguf_rs::prelude::*;
+    /// # use gguf_rs_lib::prelude::*;
     /// let builder = GGUFBuilder::new();
     /// assert_eq!(builder.tensor_count(), 0);
     /// assert_eq!(builder.metadata_count(), 0);
@@ -75,8 +75,8 @@ impl GGUFBuilder {
     /// # Example
     ///
     /// ```rust
-    /// # use gguf_rs::prelude::*;
-    /// # use gguf_rs::tensor::TensorType;
+    /// # use gguf_rs_lib::prelude::*;
+    /// # use gguf_rs_lib::tensor::TensorType;
     /// # fn main() -> Result<()> {
     /// let builder = GGUFBuilder::new()
     ///     .add_tensor("weights", vec![2, 3], TensorType::F32, vec![0u8; 24])?;
