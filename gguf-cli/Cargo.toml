@@ -17,7 +17,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Core GGUF library
-gguf = { path = "..", features = ["std"] }
+gguf-rs = { path = "..", features = ["std"] }
 
 # CLI framework
 clap = { version = "4.4", features = ["derive", "color"] }
@@ -54,7 +54,7 @@ hexyl = { version = "0.14", optional = true }
 default = ["color", "progress"]
 color = ["dep:colored", "dep:tabled"]
 progress = ["dep:indicatif"]
-async = ["dep:tokio", "gguf/async"]
+async = ["dep:tokio", "gguf-rs/async"]
 hexdump = ["dep:hexyl"]
 
 [dev-dependencies]

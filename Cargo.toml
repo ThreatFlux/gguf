@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [package]
-name = "gguf"
+name = "gguf-rs"
 version = "0.2.0"
 edition = "2021"
 description = "A Rust library for reading and writing GGUF (GGML Universal Format) files"
@@ -14,7 +14,7 @@ authors = ["Claude Code", "Wyatt Roersma"]
 license = "MIT"
 repository = "https://github.com/ThreatFlux/gguf_rs"
 homepage = "https://github.com/ThreatFlux/gguf_rs"
-documentation = "https://docs.rs/gguf"
+documentation = "https://docs.rs/gguf-rs"
 readme = "README.md"
 keywords = ["gguf", "ggml", "machine-learning", "format", "parser"]
 categories = ["parsing", "data-structures", "science"]

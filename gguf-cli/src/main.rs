@@ -7,7 +7,7 @@
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 use std::path::PathBuf;
 
 #[derive(Parser)]
