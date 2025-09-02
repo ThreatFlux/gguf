@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["create_gguf_file","create_gguf_file_with_config"],"struct":["GGUFFileWriter","GGUFWriteResult","GGUFWriterConfig","WriteResult"]};

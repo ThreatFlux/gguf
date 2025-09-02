@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["file_reader","stream_reader","tensor_reader"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["async","builder","error","format","metadata","mmap","prelude","reader","tensor","writer"]};
