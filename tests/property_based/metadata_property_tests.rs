@@ -121,11 +121,10 @@ proptest! {
 
     #[test]
     fn test_metadata_type_mixing(
-        string_key in metadata_key_strategy(),
+        (string_key, int_key, bool_key) in (metadata_key_strategy(), metadata_key_strategy(), metadata_key_strategy())
+            .prop_filter("All keys must be unique", |(s, i, b)| s != i && s != b && i != b),
         string_value in string_value_strategy(),
-        int_key in metadata_key_strategy().prop_filter("Different from string_key", |k| k != "string_key"),
         int_value in any::<u32>(),
-        bool_key in metadata_key_strategy().prop_filter("Different from others", |k| k != "string_key" && k != "int_key"),
         bool_value in any::<bool>()
     ) {
         let builder = GGUFBuilder::new()
