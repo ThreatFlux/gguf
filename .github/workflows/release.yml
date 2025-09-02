@@ -69,8 +69,8 @@ jobs:
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-    - name: Install cargo-bump
-      run: cargo install cargo-bump
+    - name: Install cargo-edit
+      run: cargo install cargo-edit
 
     - name: Determine version bump
       id: version
@@ -112,9 +112,22 @@ jobs:
         
         echo "Bump type: $BUMP_TYPE"
         
-        # Bump version
-        cargo bump $BUMP_TYPE
-        NEW_VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        # Calculate new version
+        IFS='.' read -r major minor patch <<< "$CURRENT_VERSION"
+        case $BUMP_TYPE in
+          major)
+            NEW_VERSION="$((major + 1)).0.0"
+            ;;
+          minor)
+            NEW_VERSION="$major.$((minor + 1)).0"
+            ;;
+          patch)
+            NEW_VERSION="$major.$minor.$((patch + 1))"
+            ;;
+        esac
+        
+        # Set the new version
+        cargo set-version "$NEW_VERSION"
         
         echo "New version: $NEW_VERSION"
         echo "new_version=v$NEW_VERSION" >> $GITHUB_OUTPUT
