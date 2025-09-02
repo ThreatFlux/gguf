@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use gguf::format::Metadata as FormatMetadata;
-use gguf::prelude::*;
-use gguf::reader::file_reader::GGUFFileReader;
-use gguf::tensor::{TensorData, TensorType};
+use gguf_rs::format::Metadata as FormatMetadata;
+use gguf_rs::prelude::*;
+use gguf_rs::reader::file_reader::GGUFFileReader;
+use gguf_rs::tensor::{TensorData, TensorType};
 use std::io::Cursor;
 
 // Create some test GGUF data for benchmarking
@@ -57,8 +57,8 @@ fn benchmark_metadata_operations(c: &mut Criterion) {
 fn benchmark_tensor_operations(c: &mut Criterion) {
     let data = vec![0u8; 1024 * 1024]; // 1MB of data
     let tensor_data = TensorData::new_owned(data);
-    let tensor_shape = gguf::tensor::TensorShape::new(vec![256, 256, 4]).unwrap();
-    let tensor = gguf::tensor::TensorInfo::new(
+    let tensor_shape = gguf_rs::tensor::TensorShape::new(vec![256, 256, 4]).unwrap();
+    let tensor = gguf_rs::tensor::TensorInfo::new(
         "benchmark_tensor".to_string(),
         tensor_shape,
         TensorType::F32,
