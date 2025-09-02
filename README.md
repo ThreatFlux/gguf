@@ -1,7 +1,7 @@
 # gguf_rs
 
-[![Crates.io](https://img.shields.io/crates/v/gguf-rs.svg)](https://crates.io/crates/gguf-rs)
-[![Documentation](https://docs.rs/gguf-rs/badge.svg)](https://docs.rs/gguf-rs)
+[![Crates.io](https://img.shields.io/crates/v/gguf-rs-lib.svg)](https://crates.io/crates/gguf-rs-lib)
+[![Documentation](https://docs.rs/gguf-rs-lib/badge.svg)](https://docs.rs/gguf-rs-lib)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Build Status](https://github.com/ThreatFlux/gguf_rs/workflows/CI/badge.svg)](https://github.com/ThreatFlux/gguf_rs/actions)
 
@@ -28,13 +28,13 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gguf-rs = "0.2.0"
+gguf-rs-lib = "0.2.0"
 ```
 
 ### Basic Usage
 
 ```rust
-use gguf_rs::{GGUFFile, GGUFError};
+use gguf_rs_lib::{GGUFFile, GGUFError};
 use std::fs::File;
 
 fn main() -> Result<(), GGUFError> {
@@ -58,7 +58,7 @@ fn main() -> Result<(), GGUFError> {
 ### Async Usage (with `async` feature)
 
 ```rust
-use gguf_rs::{GGUFFile, GGUFError};
+use gguf_rs_lib::{GGUFFile, GGUFError};
 use tokio::fs::File;
 
 #[tokio::main]
@@ -76,7 +76,7 @@ async fn main() -> Result<(), GGUFError> {
 ### Memory Mapping (with `mmap` feature)
 
 ```rust
-use gguf_rs::{GGUFFile, GGUFError};
+use gguf_rs_lib::{GGUFFile, GGUFError};
 
 fn main() -> Result<(), GGUFError> {
     // Memory map a large GGUF file for efficient access
