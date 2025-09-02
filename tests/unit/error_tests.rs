@@ -2,7 +2,9 @@
 
 use gguf::prelude::*;
 use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+#[cfg(feature = "std")]
 use std::error::Error;
+#[cfg(feature = "std")]
 use std::io::{self, Cursor};
 
 mod gguf_error_tests {
@@ -171,6 +173,7 @@ mod gguf_error_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod error_propagation_tests {
     use super::*;
 
@@ -366,6 +369,7 @@ fn create_test_gguf_data() -> Vec<u8> {
     data
 }
 
+#[cfg(feature = "std")]
 mod custom_error_tests {
     use super::*;
 

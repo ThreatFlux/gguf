@@ -1,10 +1,17 @@
 //! Test the GGUF library against real GGUF model files
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::reader::file_reader::GGUFFileReader;
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::Read;
+#[cfg(feature = "std")]
 use std::path::Path;
 
+#[cfg(feature = "std")]
 fn analyze_gguf_file(path: &str) -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("\n{}", "=".repeat(60));
     println!("Analyzing: {}", path);
@@ -94,6 +101,7 @@ fn analyze_gguf_file(path: &str) -> std::result::Result<(), Box<dyn std::error::
     Ok(())
 }
 
+#[cfg(feature = "std")]
 fn main() {
     println!("Testing GGUF Library Against Real Model Files");
     println!("{}", "=".repeat(60));
@@ -135,4 +143,11 @@ fn main() {
     } else {
         println!("\n⚠ Some tests failed. The library may need adjustments for real files.");
     }
+}
+
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example test_real_gguf --features std");
+    std::process::exit(1);
 }

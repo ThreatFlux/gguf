@@ -1,9 +1,15 @@
 //! Test reading real GGUF files
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::format::header::GGUFHeader;
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::BufReader;
 
+#[cfg(feature = "std")]
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("Testing GGUF library with real files");
     println!("=====================================\n");
@@ -30,4 +36,11 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("\n✅ GGUF library successfully read a real GGUF file!");
 
     Ok(())
+}
+
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example test_real_file --features std");
+    std::process::exit(1);
 }

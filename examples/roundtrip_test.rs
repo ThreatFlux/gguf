@@ -1,12 +1,21 @@
 //! GGUF roundtrip test - create a file and read it back to verify everything works
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::format::Metadata as FormatMetadata;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::reader::GGUFStreamReader;
+#[cfg(feature = "std")]
 use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+#[cfg(feature = "std")]
 use gguf::writer::GGUFStreamWriter;
+#[cfg(feature = "std")]
 use std::io::Cursor;
 
+#[cfg(feature = "std")]
 fn main() -> Result<()> {
     println!("🧪 GGUF Roundtrip Test");
     println!("======================");
@@ -27,6 +36,14 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example roundtrip_test --features std");
+    std::process::exit(1);
+}
+
+#[cfg(feature = "std")]
 fn test_minimal_roundtrip() -> Result<()> {
     // Create minimal GGUF data
     let mut buffer = Vec::new();
@@ -59,6 +76,7 @@ fn test_minimal_roundtrip() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "std")]
 fn test_full_roundtrip() -> Result<()> {
     // Create metadata
     let mut metadata = FormatMetadata::new();
@@ -126,6 +144,7 @@ fn test_full_roundtrip() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "std")]
 fn test_file_roundtrip() -> Result<()> {
     let file_path = "test_roundtrip.gguf";
 

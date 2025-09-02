@@ -1,10 +1,15 @@
 //! Comprehensive GGUF file inspection tool
 //!
 //! This example demonstrates how to read and analyze GGUF files using the gguf_rs library.
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use std::env;
 
+#[cfg(feature = "std")]
 fn main() -> Result<()> {
     // Get the GGUF file path from command line arguments
     let args: Vec<String> = env::args().collect();
@@ -99,6 +104,14 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example inspect_gguf --features std");
+    std::process::exit(1);
+}
+
+#[cfg(feature = "std")]
 fn analyze_tensor_types(tensors: &[gguf::tensor::TensorInfo]) {
     if tensors.is_empty() {
         return;
@@ -131,6 +144,7 @@ fn analyze_tensor_types(tensors: &[gguf::tensor::TensorInfo]) {
     }
 }
 
+#[cfg(feature = "std")]
 fn format_number(n: u64) -> String {
     if n >= 1_000_000_000 {
         format!("{:.2}B", n as f64 / 1_000_000_000.0)
@@ -143,6 +157,7 @@ fn format_number(n: u64) -> String {
     }
 }
 
+#[cfg(feature = "std")]
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1_073_741_824 {
         format!("{:.2} GB", bytes as f64 / 1_073_741_824.0)

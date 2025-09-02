@@ -1,10 +1,15 @@
 //! Basic usage example for the gguf_rs library
 //!
 //! This example demonstrates how to read a GGUF file and inspect its contents.
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use std::env;
 
+#[cfg(feature = "std")]
 fn main() -> Result<()> {
     // Get the GGUF file path from command line arguments
     let args: Vec<String> = env::args().collect();
@@ -17,7 +22,7 @@ fn main() -> Result<()> {
     println!("Reading GGUF file: {}", file_path);
 
     // Open and read the GGUF file
-    let file = std::fs::File::open(file_path).map_err(GGUFError::Io)?;
+    let file = std::fs::File::open(file_path)?;
 
     let reader = GGUFFileReader::new(file)?;
 
@@ -59,7 +64,14 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example basic_usage --features std");
+    std::process::exit(1);
+}
+
+#[cfg(all(feature = "std", test))]
 mod tests {
     use super::*;
     use std::io::Cursor;

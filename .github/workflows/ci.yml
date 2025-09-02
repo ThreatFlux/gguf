@@ -87,10 +87,13 @@ jobs:
         run: cargo test --verbose --all-features
 
       - name: Run tests (no default features)
-        run: cargo test --verbose --no-default-features --features alloc
+        run: cargo test --lib --verbose --no-default-features --features alloc
 
       - name: Build examples
-        run: cargo build --examples --all-features
+        run: cargo build --examples --features std
+
+      - name: Build examples (no-std)
+        run: cargo build --examples --no-default-features --features alloc
 
       - name: Test documentation
         run: cargo test --doc --all-features

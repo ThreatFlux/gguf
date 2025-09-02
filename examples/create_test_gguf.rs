@@ -1,9 +1,15 @@
 //! Creates a simple test GGUF file for testing the library
+//!
+//! This example requires the `std` feature because it uses file I/O operations.
 
+#[cfg(feature = "std")]
 use gguf::format::Metadata as FormatMetadata;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 
+#[cfg(feature = "std")]
 fn main() -> Result<()> {
     let output_path = "test_model.gguf";
 
@@ -79,4 +85,11 @@ fn main() -> Result<()> {
     println!("- Metadata entries: {}", reader.metadata().len());
 
     Ok(())
+}
+
+#[cfg(not(feature = "std"))]
+fn main() {
+    eprintln!("This example requires the 'std' feature to be enabled.");
+    eprintln!("Run with: cargo run --example create_test_gguf --features std");
+    std::process::exit(1);
 }

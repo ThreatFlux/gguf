@@ -1,11 +1,17 @@
 //! End-to-end integration tests
 
+#[cfg(feature = "std")]
 use gguf::builder::MetadataBuilder;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::tensor::TensorType;
+#[cfg(feature = "std")]
 use std::io::Cursor;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "std")]
 #[test]
 fn test_complete_workflow() {
     // Create a complex model with multiple tensors and metadata
@@ -195,6 +201,7 @@ fn test_complete_workflow() {
     }
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_round_trip_data_integrity() {
     // Test that data survives round-trip encoding/decoding perfectly
@@ -251,6 +258,7 @@ fn test_round_trip_data_integrity() {
     }
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_mixed_tensor_types() {
     // Test a model with multiple tensor types
@@ -337,6 +345,7 @@ fn test_mixed_tensor_types() {
     assert_eq!(loaded_q8.len(), 68);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_metadata_round_trip() {
     // Test comprehensive metadata round-trip
