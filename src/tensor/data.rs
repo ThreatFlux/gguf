@@ -490,7 +490,7 @@ impl fmt::Display for TensorDataInfo {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

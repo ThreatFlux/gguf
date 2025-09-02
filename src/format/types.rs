@@ -489,7 +489,7 @@ impl fmt::Display for GGUFTensorType {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

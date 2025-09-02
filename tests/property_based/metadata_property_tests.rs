@@ -1,20 +1,27 @@
 //! Property-based tests for metadata operations
 
+#[cfg(feature = "std")]
 use gguf::builder::GGUFBuilder;
+#[cfg(feature = "std")]
 use gguf::format::metadata::MetadataValue;
+#[cfg(feature = "std")]
 use proptest::prelude::*;
+#[cfg(feature = "std")]
 use std::io::Cursor;
 
 // Strategy for generating metadata keys
+#[cfg(feature = "std")]
 fn metadata_key_strategy() -> impl Strategy<Value = String> {
     "[a-zA-Z][a-zA-Z0-9._-]{0,30}" // Valid metadata key pattern
 }
 
 // Strategy for generating string values
+#[cfg(feature = "std")]
 fn string_value_strategy() -> impl Strategy<Value = String> {
     "[a-zA-Z0-9 ._-]{0,100}" // Reasonable string content
 }
 
+#[cfg(feature = "std")]
 proptest! {
     #[test]
     fn test_metadata_string_round_trip(
@@ -138,6 +145,7 @@ proptest! {
     }
 }
 
+#[cfg(feature = "std")]
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(10))] // Fewer cases for complex tests
 

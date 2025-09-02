@@ -2,15 +2,23 @@
 
 #![recursion_limit = "2048"]
 
+#[cfg(feature = "std")]
 use gguf::format::MetadataValue;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::reader::GGUFFileReader;
+#[cfg(feature = "std")]
 use gguf::tensor::{TensorData, TensorInfo, TensorType};
+#[cfg(feature = "std")]
 use std::io::Cursor;
+#[cfg(feature = "std")]
 use std::io::Write;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
 /// Helper function to create minimal valid GGUF data
+#[cfg(feature = "std")]
 fn create_minimal_gguf_data() -> Vec<u8> {
     let mut data = Vec::new();
 
@@ -23,6 +31,7 @@ fn create_minimal_gguf_data() -> Vec<u8> {
     data
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_read_minimal_gguf() {
     let data = create_minimal_gguf_data();
@@ -35,6 +44,7 @@ fn test_read_minimal_gguf() {
     assert_eq!(reader.metadata().len(), 0);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_invalid_magic_number() {
     let mut data = Vec::new();
@@ -47,6 +57,7 @@ fn test_invalid_magic_number() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_unsupported_version() {
     let mut data = Vec::new();
@@ -59,6 +70,7 @@ fn test_unsupported_version() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_truncated_file() {
     let data = vec![0x47, 0x47, 0x55]; // Only 3 bytes (insufficient for magic)
@@ -68,6 +80,7 @@ fn test_truncated_file() {
     assert!(result.is_err());
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_file_from_disk() {
     let data = create_minimal_gguf_data();
@@ -84,6 +97,7 @@ fn test_file_from_disk() {
     assert_eq!(reader.metadata().len(), 0);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_metadata_operations() {
     let mut metadata = Metadata::new();
@@ -109,6 +123,7 @@ fn test_metadata_operations() {
     assert!(metadata.get("non_existent").is_none());
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_tensor_type_properties() {
     // Test basic types
@@ -127,6 +142,7 @@ fn test_tensor_type_properties() {
     assert_eq!(TensorType::Q4_0.name(), "Q4_0");
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_tensor_creation_and_properties() {
     let data = TensorData::new_owned(vec![1, 2, 3, 4, 5, 6, 7, 8]);
@@ -141,6 +157,7 @@ fn test_tensor_creation_and_properties() {
     assert_eq!(tensor.data().unwrap().len(), 8);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_tensor_data_operations() {
     let data = vec![1, 2, 3, 4, 5];
@@ -171,7 +188,7 @@ async fn test_async_read_minimal_gguf() {
     assert_eq!(reader.metadata().len(), 0);
 }
 
-#[cfg(feature = "mmap")]
+#[cfg(all(feature = "mmap", feature = "std"))]
 #[test]
 fn test_mmap_read_minimal_gguf() {
     let data = create_minimal_gguf_data();

@@ -1,13 +1,21 @@
 //! Unit tests for the reader module
 
+#[cfg(feature = "std")]
 use gguf::format::{GGUFTensorType, GGUFValueType};
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::reader::*;
+#[cfg(feature = "std")]
 use gguf::tensor::TensorType;
+#[cfg(feature = "std")]
 use std::io::Cursor;
+#[cfg(feature = "std")]
 use std::io::Write;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "std")]
 mod file_reader_tests {
     use super::*;
 
@@ -184,6 +192,7 @@ mod file_reader_tests {
 }
 
 // Helper function to create test data with two tensors
+#[cfg(feature = "std")]
 fn create_test_gguf_data_two_tensors() -> Vec<u8> {
     let mut data = Vec::new();
 
@@ -237,6 +246,7 @@ fn create_test_gguf_data_two_tensors() -> Vec<u8> {
     data
 }
 
+#[cfg(feature = "std")]
 mod stream_reader_tests {
     use super::*;
 
@@ -307,6 +317,7 @@ mod stream_reader_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod tensor_reader_tests {
     use super::*;
 
@@ -415,6 +426,7 @@ mod tensor_reader_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod error_handling_tests {
     use super::*;
 
@@ -517,6 +529,7 @@ mod error_handling_tests {
 }
 
 // Helper function to create test data
+#[cfg(feature = "std")]
 fn create_test_gguf_data() -> Vec<u8> {
     let mut data = Vec::new();
 

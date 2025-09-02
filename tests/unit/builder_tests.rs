@@ -1,13 +1,21 @@
 //! Unit tests for the builder module
 
+#[cfg(feature = "std")]
 use gguf::builder::*;
+#[cfg(feature = "std")]
 use gguf::format::MetadataValue;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::reader::GGUFFileReader;
+#[cfg(feature = "std")]
 use gguf::tensor::{TensorData, TensorShape, TensorType};
+#[cfg(feature = "std")]
 use std::io::Cursor;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "std")]
 mod gguf_builder_tests {
     use super::*;
 
@@ -320,6 +328,7 @@ mod gguf_builder_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod metadata_builder_tests {
     use super::*;
 

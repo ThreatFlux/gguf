@@ -1,12 +1,19 @@
 //! Unit tests for the writer module
 
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::reader::GGUFFileReader;
+#[cfg(feature = "std")]
 use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+#[cfg(feature = "std")]
 use gguf::writer::*;
+#[cfg(feature = "std")]
 use std::io::Cursor;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
+#[cfg(feature = "std")]
 mod file_writer_tests {
     use super::*;
 
@@ -268,6 +275,7 @@ mod file_writer_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod stream_writer_tests {
     use super::*;
 
@@ -393,6 +401,7 @@ mod stream_writer_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod tensor_writer_tests {
     use super::*;
 
@@ -559,6 +568,7 @@ mod tensor_writer_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod write_result_tests {
     use super::*;
 
@@ -591,7 +601,7 @@ mod write_result_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod integration_write_read_tests {
     use super::*;
 

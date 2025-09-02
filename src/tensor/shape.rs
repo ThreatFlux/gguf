@@ -388,7 +388,7 @@ impl ops::IndexMut<usize> for TensorShape {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

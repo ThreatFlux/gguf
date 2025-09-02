@@ -321,7 +321,7 @@ impl fmt::Display for TensorInfo {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use std::io::Cursor;

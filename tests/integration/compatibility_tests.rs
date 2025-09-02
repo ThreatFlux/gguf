@@ -1,11 +1,17 @@
 //! Compatibility and edge case tests
 
+#[cfg(feature = "std")]
 use gguf::builder::GGUFBuilder;
+#[cfg(feature = "std")]
 use gguf::format::metadata::MetadataValue;
+#[cfg(feature = "std")]
 use gguf::reader::GGUFFileReader;
+#[cfg(feature = "std")]
 use gguf::tensor::TensorType;
+#[cfg(feature = "std")]
 use std::io::Cursor;
 
+#[cfg(feature = "std")]
 #[test]
 fn test_empty_file_compatibility() {
     // Test creating and reading an empty GGUF file
@@ -25,6 +31,7 @@ fn test_empty_file_compatibility() {
     assert_eq!(reader.metadata().len(), 0);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_minimal_valid_file() {
     // Test the smallest possible valid GGUF file with some content
@@ -49,6 +56,7 @@ fn test_minimal_valid_file() {
     assert_eq!(reader.metadata().len(), 1);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_special_characters_in_names() {
     // Test tensor and metadata names with special characters
@@ -81,6 +89,7 @@ fn test_special_characters_in_names() {
     assert!(reader.get_tensor_info("tensor.with.dots").is_some());
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_zero_dimensional_edge_cases() {
     // Test tensors with zero in some dimensions
@@ -106,6 +115,7 @@ fn test_zero_dimensional_edge_cases() {
     assert_eq!(tensor_info.element_count(), 0);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_unicode_string_handling() {
     // Test Unicode strings in metadata

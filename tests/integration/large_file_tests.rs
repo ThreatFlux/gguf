@@ -1,9 +1,13 @@
 //! Large file handling tests
 
+#[cfg(feature = "std")]
 use gguf::builder::GGUFBuilder;
+#[cfg(feature = "std")]
 use gguf::format::metadata::MetadataValue;
+#[cfg(feature = "std")]
 use gguf::tensor::TensorType;
 
+#[cfg(feature = "std")]
 #[test]
 fn test_large_tensor_handling() {
     // Test handling of reasonably large tensors
@@ -22,6 +26,7 @@ fn test_large_tensor_handling() {
     assert!(write_result.total_bytes_written > size * 4);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_many_small_tensors() {
     // Test handling many small tensors
@@ -44,6 +49,7 @@ fn test_many_small_tensors() {
     assert_eq!(write_result.tensor_results.len(), 100);
 }
 
+#[cfg(feature = "std")]
 #[test]
 fn test_large_metadata() {
     // Test handling of large amounts of metadata

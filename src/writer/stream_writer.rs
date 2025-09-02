@@ -453,7 +453,7 @@ impl std::fmt::Display for CompleteStreamWriteResult {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::format::metadata::MetadataValue;

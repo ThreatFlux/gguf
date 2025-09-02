@@ -1,11 +1,17 @@
 //! Unit tests for the format module
 
+#[cfg(feature = "std")]
 use gguf::format::metadata::{MetadataArray, MetadataValue};
+#[cfg(feature = "std")]
 use gguf::format::types::GGUFValueType;
+#[cfg(feature = "std")]
 use gguf::format::*;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use std::io::Cursor;
 
+#[cfg(feature = "std")]
 mod constants_tests {
     use super::*;
 
@@ -25,6 +31,7 @@ mod constants_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod header_tests {
     use super::*;
 
@@ -125,6 +132,7 @@ mod header_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod metadata_tests {
     use super::*;
 
@@ -307,6 +315,7 @@ mod metadata_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod alignment_tests {
     use super::*;
 
@@ -369,6 +378,7 @@ mod alignment_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod endian_tests {
 
     #[test]
@@ -433,4 +443,5 @@ mod endian_tests {
     }
 }
 
+#[cfg(feature = "std")]
 mod types_tests {}

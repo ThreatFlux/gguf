@@ -1,12 +1,18 @@
 //! Test fixtures for GGUF tests
 
+#[cfg(feature = "std")]
 use gguf::format::metadata::MetadataValue;
+#[cfg(feature = "std")]
 use gguf::prelude::*;
+#[cfg(feature = "std")]
 use gguf::tensor::TensorType;
+#[cfg(feature = "std")]
 use std::io::Write;
+#[cfg(feature = "std")]
 use tempfile::NamedTempFile;
 
 /// Create a minimal valid GGUF file with no tensors or metadata
+#[cfg(feature = "std")]
 pub fn create_minimal_gguf() -> Vec<u8> {
     let mut data = Vec::new();
 
@@ -20,6 +26,7 @@ pub fn create_minimal_gguf() -> Vec<u8> {
 }
 
 /// Create a simple GGUF file with basic metadata and one tensor
+#[cfg(feature = "std")]
 pub fn create_simple_gguf() -> Vec<u8> {
     let builder = GGUFBuilder::simple("test_model", "A simple test model").add_f32_tensor(
         "weights",
@@ -32,6 +39,7 @@ pub fn create_simple_gguf() -> Vec<u8> {
 }
 
 /// Create a GGUF file with comprehensive metadata
+#[cfg(feature = "std")]
 pub fn create_metadata_rich_gguf() -> Vec<u8> {
     let mut builder = GGUFBuilder::simple("metadata_test", "Testing metadata");
 
@@ -65,6 +73,7 @@ pub fn create_metadata_rich_gguf() -> Vec<u8> {
 }
 
 /// Create a GGUF file with multiple tensor types
+#[cfg(feature = "std")]
 pub fn create_multi_tensor_gguf() -> Vec<u8> {
     let mut builder = GGUFBuilder::simple("multi_tensor", "Multiple tensor types");
 
@@ -89,6 +98,7 @@ pub fn create_multi_tensor_gguf() -> Vec<u8> {
 }
 
 /// Create a GGUF file with large tensors for performance testing
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn create_large_gguf() -> Vec<u8> {
     let mut builder = GGUFBuilder::simple("large_model", "Large model for testing");
@@ -123,6 +133,7 @@ pub fn create_large_gguf() -> Vec<u8> {
 }
 
 /// Create a GGUF file with edge case tensors (empty, unusual shapes)
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn create_edge_case_gguf() -> Vec<u8> {
     let mut builder = GGUFBuilder::simple("edge_cases", "Edge case tensors");
@@ -147,6 +158,7 @@ pub fn create_edge_case_gguf() -> Vec<u8> {
 }
 
 /// Create an invalid GGUF file with wrong magic number
+#[cfg(feature = "std")]
 pub fn create_invalid_magic_gguf() -> Vec<u8> {
     let mut data = Vec::new();
 
@@ -160,6 +172,7 @@ pub fn create_invalid_magic_gguf() -> Vec<u8> {
 }
 
 /// Create an invalid GGUF file with unsupported version
+#[cfg(feature = "std")]
 pub fn create_invalid_version_gguf() -> Vec<u8> {
     let mut data = Vec::new();
 
@@ -172,11 +185,13 @@ pub fn create_invalid_version_gguf() -> Vec<u8> {
 }
 
 /// Create a truncated GGUF file (incomplete header)
+#[cfg(feature = "std")]
 pub fn create_truncated_gguf() -> Vec<u8> {
     vec![0x47, 0x47, 0x55] // Only 3 bytes
 }
 
 /// Create a GGUF file with corrupted metadata
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn create_corrupted_metadata_gguf() -> Vec<u8> {
     let mut data = Vec::new();
@@ -195,6 +210,7 @@ pub fn create_corrupted_metadata_gguf() -> Vec<u8> {
 }
 
 /// Save GGUF data to a temporary file and return the file
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn save_to_temp_file(data: &[u8]) -> NamedTempFile {
     let mut temp_file = NamedTempFile::new().expect("Failed to create temp file");
@@ -204,6 +220,7 @@ pub fn save_to_temp_file(data: &[u8]) -> NamedTempFile {
 }
 
 /// Create a GGUF file with specific alignment challenges
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn create_alignment_test_gguf() -> Vec<u8> {
     let mut builder = GGUFBuilder::new();
@@ -229,6 +246,7 @@ pub fn create_alignment_test_gguf() -> Vec<u8> {
 }
 
 /// Test data for quantization tests
+#[cfg(feature = "std")]
 #[allow(dead_code)]
 pub fn create_quantization_test_data() -> Vec<f32> {
     // Create data with known patterns for quantization testing
@@ -243,7 +261,7 @@ pub fn create_quantization_test_data() -> Vec<f32> {
     data
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use gguf::reader::GGUFFileReader;

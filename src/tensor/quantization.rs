@@ -630,7 +630,7 @@ impl fmt::Display for QuantizationParams {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

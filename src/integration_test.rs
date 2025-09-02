@@ -1,6 +1,6 @@
 //! Integration test for basic GGUF functionality
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::prelude::*;
     use std::io::Cursor;

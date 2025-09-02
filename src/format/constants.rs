@@ -21,7 +21,7 @@ pub const GGUF_HEADER_SIZE: usize = 4 + 4 + 8 + 8;
 /// Minimum valid GGUF file size (header only)
 pub const GGUF_MIN_FILE_SIZE: usize = GGUF_HEADER_SIZE;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
 

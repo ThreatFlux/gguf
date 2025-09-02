@@ -441,7 +441,7 @@ impl std::fmt::Display for TensorMemoryRequirements {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::tensor::TensorShape;

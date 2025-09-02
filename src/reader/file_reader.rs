@@ -519,7 +519,7 @@ impl std::fmt::Display for GGUFMemoryUsage {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
     use crate::format::constants::*;
