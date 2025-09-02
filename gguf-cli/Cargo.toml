@@ -1,6 +1,6 @@
 [package]
 name = "gguf-cli"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 description = "Command-line tool for working with GGUF (GGML Universal Format) files"
 authors = ["Claude Code", "Wyatt Roersma"]
