@@ -142,8 +142,14 @@ jobs:
             sed -i "s/version-.*-blue/version-$NEW_VERSION-blue/" README.md || true
           fi
           
-          # Commit version change
-          git add Cargo.toml Cargo.lock README.md 2>/dev/null || git add Cargo.toml Cargo.lock
+          # Commit version change (don't add Cargo.lock for libraries)
+          git add Cargo.toml
+          if [ -f "README.md" ]; then
+            git add README.md
+          fi
+          if [ -f "gguf-cli/Cargo.toml" ]; then
+            git add gguf-cli/Cargo.toml
+          fi
           git commit -m "chore(release): bump version to $NEW_VERSION
 
           Auto-generated release commit"
