@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gguf = "0.1.0"
+gguf = "0.2.0"
 ```
 
 ### Basic Usage
