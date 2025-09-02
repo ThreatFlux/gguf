@@ -1,11 +1,11 @@
 //! Test fixtures for GGUF tests
 
 #[cfg(feature = "std")]
-use gguf::format::metadata::MetadataValue;
+use gguf_rs::format::metadata::MetadataValue;
 #[cfg(feature = "std")]
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 #[cfg(feature = "std")]
-use gguf::tensor::TensorType;
+use gguf_rs::tensor::TensorType;
 #[cfg(feature = "std")]
 use std::io::Write;
 #[cfg(feature = "std")]
@@ -60,8 +60,8 @@ pub fn create_metadata_rich_gguf() -> Vec<u8> {
         .add_metadata(
             "test.array",
             MetadataValue::Array(Box::new(
-                gguf::format::metadata::MetadataArray::new(
-                    gguf::format::types::GGUFValueType::U32,
+                gguf_rs::format::metadata::MetadataArray::new(
+                    gguf_rs::format::types::GGUFValueType::U32,
                     vec![MetadataValue::U32(1), MetadataValue::U32(2), MetadataValue::U32(3)],
                 )
                 .expect("Failed to create metadata array"),
@@ -264,7 +264,7 @@ pub fn create_quantization_test_data() -> Vec<f32> {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use gguf::reader::GGUFFileReader;
+    use gguf_rs::reader::GGUFFileReader;
     use std::io::Cursor;
 
     #[test]

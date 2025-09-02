@@ -5,7 +5,7 @@
 //! This example requires the `std` feature because it uses file I/O operations.
 
 #[cfg(feature = "std")]
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 #[cfg(feature = "std")]
 use std::env;
 

@@ -1,7 +1,7 @@
 //! Unit tests for the tensor module
 
-use gguf::prelude::*;
-use gguf::tensor::*;
+use gguf_rs::prelude::*;
+use gguf_rs::tensor::*;
 
 mod tensor_type_tests {
     use super::*;

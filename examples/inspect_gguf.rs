@@ -5,7 +5,7 @@
 //! This example requires the `std` feature because it uses file I/O operations.
 
 #[cfg(feature = "std")]
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 #[cfg(feature = "std")]
 use std::env;
 
@@ -112,7 +112,7 @@ fn main() {
 }
 
 #[cfg(feature = "std")]
-fn analyze_tensor_types(tensors: &[gguf::tensor::TensorInfo]) {
+fn analyze_tensor_types(tensors: &[gguf_rs::tensor::TensorInfo]) {
     if tensors.is_empty() {
         return;
     }

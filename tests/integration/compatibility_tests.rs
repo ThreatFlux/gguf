@@ -1,13 +1,13 @@
 //! Compatibility and edge case tests
 
 #[cfg(feature = "std")]
-use gguf::builder::GGUFBuilder;
+use gguf_rs::builder::GGUFBuilder;
 #[cfg(feature = "std")]
-use gguf::format::metadata::MetadataValue;
+use gguf_rs::format::metadata::MetadataValue;
 #[cfg(feature = "std")]
-use gguf::reader::GGUFFileReader;
+use gguf_rs::reader::GGUFFileReader;
 #[cfg(feature = "std")]
-use gguf::tensor::TensorType;
+use gguf_rs::tensor::TensorType;
 #[cfg(feature = "std")]
 use std::io::Cursor;
 
@@ -83,7 +83,8 @@ fn test_special_characters_in_names() {
 
     // Verify it can be read
     let cursor = Cursor::new(bytes);
-    let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read special names");
+    let reader =
+        gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read special names");
 
     assert!(reader.metadata().contains_key("name.with.dots"));
     assert!(reader.get_tensor_info("tensor.with.dots").is_some());
@@ -134,7 +135,7 @@ fn test_unicode_string_handling() {
 
     // Read back and verify
     let cursor = Cursor::new(bytes);
-    let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read Unicode");
+    let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read Unicode");
 
     assert_eq!(reader.metadata().get_string("english"), Some("Hello World"));
     assert_eq!(reader.metadata().get_string("chinese"), Some("你好世界"));

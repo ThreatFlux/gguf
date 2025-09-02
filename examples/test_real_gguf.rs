@@ -3,7 +3,7 @@
 //! This example requires the `std` feature because it uses file I/O operations.
 
 #[cfg(feature = "std")]
-use gguf::reader::file_reader::GGUFFileReader;
+use gguf_rs::reader::file_reader::GGUFFileReader;
 #[cfg(feature = "std")]
 use std::fs::File;
 #[cfg(feature = "std")]

@@ -1,13 +1,13 @@
 //! Unit tests for the format module
 
 #[cfg(feature = "std")]
-use gguf::format::metadata::{MetadataArray, MetadataValue};
+use gguf_rs::format::metadata::{MetadataArray, MetadataValue};
 #[cfg(feature = "std")]
-use gguf::format::types::GGUFValueType;
+use gguf_rs::format::types::GGUFValueType;
 #[cfg(feature = "std")]
-use gguf::format::*;
+use gguf_rs::format::*;
 #[cfg(feature = "std")]
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 #[cfg(feature = "std")]
 use std::io::Cursor;
 
@@ -321,13 +321,13 @@ mod alignment_tests {
 
     #[test]
     fn test_pad_to_alignment() {
-        assert_eq!(gguf::format::alignment::calculate_padding(0, 32), 0);
-        assert_eq!(gguf::format::alignment::calculate_padding(1, 32), 31);
-        assert_eq!(gguf::format::alignment::calculate_padding(16, 32), 16);
-        assert_eq!(gguf::format::alignment::calculate_padding(32, 32), 0);
-        assert_eq!(gguf::format::alignment::calculate_padding(33, 32), 31);
-        assert_eq!(gguf::format::alignment::calculate_padding(48, 32), 16);
-        assert_eq!(gguf::format::alignment::calculate_padding(64, 32), 0);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(0, 32), 0);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(1, 32), 31);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(16, 32), 16);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(32, 32), 0);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(33, 32), 31);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(48, 32), 16);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(64, 32), 0);
     }
 
     #[test]
@@ -355,8 +355,8 @@ mod alignment_tests {
     #[test]
     fn test_alignment_edge_cases() {
         // Test with alignment of 1 (everything should be aligned)
-        assert_eq!(gguf::format::alignment::calculate_padding(0, 1), 0);
-        assert_eq!(gguf::format::alignment::calculate_padding(100, 1), 0);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(0, 1), 0);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(100, 1), 0);
         assert_eq!(align_to(50, 1), 50);
         assert!(is_aligned(123, 1));
 
@@ -367,7 +367,7 @@ mod alignment_tests {
 
         // Test with large values
         assert_eq!(align_to(1000, 64), 1024);
-        assert_eq!(gguf::format::alignment::calculate_padding(1000, 64), 24);
+        assert_eq!(gguf_rs::format::alignment::calculate_padding(1000, 64), 24);
     }
 
     #[test]

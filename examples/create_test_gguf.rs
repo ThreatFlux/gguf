@@ -3,11 +3,11 @@
 //! This example requires the `std` feature because it uses file I/O operations.
 
 #[cfg(feature = "std")]
-use gguf::format::Metadata as FormatMetadata;
+use gguf_rs::format::Metadata as FormatMetadata;
 #[cfg(feature = "std")]
-use gguf::prelude::*;
+use gguf_rs::prelude::*;
 #[cfg(feature = "std")]
-use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+use gguf_rs::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 
 #[cfg(feature = "std")]
 fn main() -> Result<()> {

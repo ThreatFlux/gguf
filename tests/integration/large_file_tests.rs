@@ -1,11 +1,11 @@
 //! Large file handling tests
 
 #[cfg(feature = "std")]
-use gguf::builder::GGUFBuilder;
+use gguf_rs::builder::GGUFBuilder;
 #[cfg(feature = "std")]
-use gguf::format::metadata::MetadataValue;
+use gguf_rs::format::metadata::MetadataValue;
 #[cfg(feature = "std")]
-use gguf::tensor::TensorType;
+use gguf_rs::tensor::TensorType;
 
 #[cfg(feature = "std")]
 #[test]

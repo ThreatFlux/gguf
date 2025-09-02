@@ -1,6 +1,6 @@
 //! Property-based tests for alignment calculations
 
-use gguf::format::{align_to, calculate_padding, is_aligned, GGUF_DEFAULT_ALIGNMENT};
+use gguf_rs::format::{align_to, calculate_padding, is_aligned, GGUF_DEFAULT_ALIGNMENT};
 use proptest::prelude::*;
 
 proptest! {

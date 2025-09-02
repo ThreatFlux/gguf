@@ -1,9 +1,9 @@
 //! Property-based tests for metadata operations
 
 #[cfg(feature = "std")]
-use gguf::builder::GGUFBuilder;
+use gguf_rs::builder::GGUFBuilder;
 #[cfg(feature = "std")]
-use gguf::format::metadata::MetadataValue;
+use gguf_rs::format::metadata::MetadataValue;
 #[cfg(feature = "std")]
 use proptest::prelude::*;
 #[cfg(feature = "std")]
@@ -34,7 +34,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().get_string(&key), Some(value.as_str()));
     }
@@ -50,7 +50,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().get_u64(&key), Some(value as u64));
     }
@@ -66,7 +66,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().get_bool(&key), Some(value));
     }
@@ -82,7 +82,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         let loaded_value = reader.metadata().get_f64(&key).unwrap() as f32;
         prop_assert!((loaded_value - value).abs() < f32::EPSILON);
@@ -110,7 +110,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().len(), unique_entries.len());
 
@@ -135,7 +135,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().len(), 3);
         prop_assert_eq!(reader.metadata().get_string(&string_key), Some(string_value.as_str()));
@@ -165,7 +165,7 @@ proptest! {
 
             let (bytes, _) = result.unwrap();
             let cursor = Cursor::new(bytes);
-            let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+            let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
             prop_assert_eq!(reader.metadata().get_string(&key), Some(large_string.as_str()));
         }
@@ -187,7 +187,7 @@ proptest! {
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
         let cursor = Cursor::new(bytes);
-        let reader = gguf::reader::GGUFFileReader::new(cursor).expect("Failed to read");
+        let reader = gguf_rs::reader::GGUFFileReader::new(cursor).expect("Failed to read");
 
         prop_assert_eq!(reader.metadata().get_u64(&key), Some(42));
     }

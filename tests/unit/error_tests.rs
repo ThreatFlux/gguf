@@ -1,7 +1,7 @@
 //! Unit tests for error handling
 
-use gguf::prelude::*;
-use gguf::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
+use gguf_rs::prelude::*;
+use gguf_rs::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 #[cfg(feature = "std")]
 use std::error::Error;
 #[cfg(feature = "std")]
@@ -186,7 +186,7 @@ mod error_propagation_tests {
         invalid_data.extend_from_slice(&[0u8; 20]); // Add some padding to avoid EOF
         let cursor = Cursor::new(invalid_data);
 
-        let result = gguf::reader::GGUFFileReader::new(cursor);
+        let result = gguf_rs::reader::GGUFFileReader::new(cursor);
 
         match result {
             Err(GGUFError::InvalidMagic { expected, found }) => {
@@ -222,7 +222,7 @@ mod error_propagation_tests {
         let writer = FailingWriter;
 
         // The writer creation itself shouldn't fail, but writing should
-        let mut file_writer = gguf::writer::GGUFFileWriter::new(writer);
+        let mut file_writer = gguf_rs::writer::GGUFFileWriter::new(writer);
 
         let header = GGUFHeader::default();
         let write_result = file_writer.write_header(&header);
@@ -299,7 +299,7 @@ mod error_propagation_tests {
         // Truncated header
         let truncated_header = vec![0x47, 0x47, 0x55]; // Only 3 bytes
         let cursor = Cursor::new(truncated_header);
-        let result = gguf::reader::GGUFFileReader::new(cursor);
+        let result = gguf_rs::reader::GGUFFileReader::new(cursor);
         assert!(result.is_err());
 
         // Truncated after valid header
@@ -311,14 +311,14 @@ mod error_propagation_tests {
                                                              // Missing metadata and tensor data
 
         let cursor = Cursor::new(partial_data);
-        let result = gguf::reader::GGUFFileReader::new(cursor);
+        let result = gguf_rs::reader::GGUFFileReader::new(cursor);
         assert!(result.is_err());
     }
 
     #[test]
     fn test_alignment_validation_errors() {
         // Test alignment validation
-        use gguf::format::{align_to, calculate_padding, is_aligned};
+        use gguf_rs::format::{align_to, calculate_padding, is_aligned};
 
         // These should work
         assert_eq!(align_to(10, 8), 16);
@@ -344,7 +344,7 @@ mod error_propagation_tests {
                 let data_clone = Arc::clone(&data);
                 thread::spawn(move || {
                     let cursor = Cursor::new((**data_clone).to_vec());
-                    gguf::reader::GGUFFileReader::new(cursor)
+                    gguf_rs::reader::GGUFFileReader::new(cursor)
                 })
             })
             .collect();

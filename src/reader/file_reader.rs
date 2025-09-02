@@ -5,10 +5,10 @@
 //! ## Example
 //!
 //! ```rust
-//! # use gguf::prelude::*;
+//! # use gguf_rs::prelude::*;
 //! # use std::io::Cursor;
 //! # fn example_data() -> Vec<u8> {
-//! #     use gguf::format::constants::*;
+//! #     use gguf_rs::format::constants::*;
 //! #     let mut data = Vec::new();
 //! #     // Header
 //! #     data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
