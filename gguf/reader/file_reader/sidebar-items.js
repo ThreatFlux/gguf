@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["open_gguf_file","open_gguf_file_with_config"],"struct":["GGUFFileReader","GGUFFileSummary","GGUFMemoryUsage","GGUFReaderConfig"]};

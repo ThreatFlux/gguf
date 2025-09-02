@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["TensorMemoryRequirements","TensorReadOptions","TensorReadResult","TensorReadUtils","TensorReader"]};

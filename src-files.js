@@ -1,0 +1,2 @@
+createSrcSidebar('[["gguf",["",[["builder",[],["gguf_builder.rs","metadata_builder.rs","mod.rs","tensor_builder.rs"]],["format",[],["alignment.rs","constants.rs","endian.rs","header.rs","metadata.rs","mod.rs","types.rs"]],["reader",[],["file_reader.rs","mod.rs","stream_reader.rs","tensor_reader.rs"]],["tensor",[],["data.rs","info.rs","mod.rs","quantization.rs","shape.rs","tensor_type.rs"]],["writer",[],["file_writer.rs","mod.rs","stream_writer.rs","tensor_writer.rs"]]],["async.rs","error.rs","lib.rs","metadata.rs","mmap.rs"]]]]');
+//{"start":19,"fragment_lengths":[513]}

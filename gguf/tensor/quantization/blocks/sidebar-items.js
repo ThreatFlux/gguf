@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["IQ2_XXSBlock","IQ3_XXSBlock","IQ4_NLBlock","Q2_KBlock","Q3_KBlock","Q4_0Block","Q4_1Block","Q4_KBlock","Q5_0Block","Q5_1Block","Q5_KBlock","Q6_KBlock","Q8_0Block","Q8_1Block","Q8_KBlock"]};

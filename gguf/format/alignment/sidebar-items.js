@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["align_to","align_to_default","aligned_size","aligned_size_default","calculate_default_padding","calculate_padding","create_padding","is_aligned","is_aligned_default","is_valid_alignment","next_power_of_2"],"struct":["AlignmentInfo","AlignmentTracker"]};

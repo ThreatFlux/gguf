@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["buffered_stream_reader","stream_reader_from_read"],"struct":["GGUFStreamReader","StreamReaderConfig","StreamReaderSummary","TensorIterator"]};
