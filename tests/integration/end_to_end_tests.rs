@@ -154,7 +154,8 @@ fn test_complete_workflow() {
     assert_eq!(result.tensor_results.len(), 1 + 12 * 10 + 3); // embedding + 12 layers * 10 tensors + final norm + output
 
     // Read back and verify
-    let reader = gguf_rs_lib::reader::open_gguf_file(temp_file.path()).expect("Failed to read model");
+    let reader =
+        gguf_rs_lib::reader::open_gguf_file(temp_file.path()).expect("Failed to read model");
 
     // Verify metadata
     assert_eq!(reader.metadata().get_string("general.name"), Some("integration_test_model"));
