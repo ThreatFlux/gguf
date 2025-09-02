@@ -1,134 +1,480 @@
-name: Release
+name: Auto Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [ main ]
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Release tag'
+      version_type:
+        description: 'Version bump type'
         required: true
-        type: string
+        default: 'patch'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
 
-permissions:
-  contents: write
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
-  create-release:
-    name: Create Release
+  # Wait for CI to complete successfully
+  wait-for-ci:
+    name: Wait for CI
     runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      release_version: ${{ env.RELEASE_VERSION }}
+    if: github.event_name == 'push'
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: Wait for CI workflow
+      uses: lewagon/wait-on-check-action@v1.3.4
+      with:
+        ref: ${{ github.sha }}
+        check-name: 'Test on ubuntu-latest with Rust stable'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        wait-interval: 30
+        allowed-conclusions: success
+      continue-on-error: true
 
-      - name: Get release version
-        run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "RELEASE_VERSION=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+    - name: Wait for Security workflow
+      uses: lewagon/wait-on-check-action@v1.3.4
+      with:
+        ref: ${{ github.sha }}
+        check-name: 'Cargo Deny Check'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        wait-interval: 30
+        allowed-conclusions: success,neutral,skipped
+      continue-on-error: true
+
+  # Determine version bump and update Cargo.toml
+  version-bump:
+    name: Version Bump
+    runs-on: ubuntu-latest
+    needs: [wait-for-ci]
+    if: always() && (needs.wait-for-ci.result == 'success' || needs.wait-for-ci.result == 'skipped' || github.event_name == 'workflow_dispatch')
+    outputs:
+      new_version: ${{ steps.version.outputs.new_version }}
+      version_changed: ${{ steps.version.outputs.version_changed }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Setup Git
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+    - name: Install cargo-bump
+      run: cargo install cargo-bump
+
+    - name: Determine version bump
+      id: version
+      run: |
+        # Get current version from Cargo.toml
+        CURRENT_VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "Current version: $CURRENT_VERSION"
+        
+        # Determine bump type
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          BUMP_TYPE="${{ github.event.inputs.version_type }}"
+        else
+          # Auto-determine based on commit messages since last release
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMIT_RANGE="HEAD"
           else
-            echo "RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            COMMIT_RANGE="$LAST_TAG..HEAD"
           fi
+          
+          COMMIT_MESSAGES=$(git log --pretty=format:"%s" $COMMIT_RANGE)
+          
+          # Skip if only documentation or CI changes
+          if echo "$COMMIT_MESSAGES" | grep -qE "^(docs|ci|chore|test):" && \
+             ! echo "$COMMIT_MESSAGES" | grep -qE "^(feat|fix|perf|refactor|breaking):" ; then
+            echo "Only documentation/CI changes detected, skipping release"
+            echo "version_changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          if echo "$COMMIT_MESSAGES" | grep -q "BREAKING CHANGE\|!:" ; then
+            BUMP_TYPE="major"
+          elif echo "$COMMIT_MESSAGES" | grep -q "feat\|feature:" ; then
+            BUMP_TYPE="minor"
+          else
+            BUMP_TYPE="patch"
+          fi
+        fi
+        
+        echo "Bump type: $BUMP_TYPE"
+        
+        # Bump version
+        cargo bump $BUMP_TYPE
+        NEW_VERSION=$(grep '^version =' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        
+        echo "New version: $NEW_VERSION"
+        echo "new_version=v$NEW_VERSION" >> $GITHUB_OUTPUT
+        
+        # Check if version actually changed
+        if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+          echo "version_changed=true" >> $GITHUB_OUTPUT
+          
+          # Update version in README if it exists
+          if [ -f "README.md" ]; then
+            sed -i "s/gguf = \".*\"/gguf = \"$NEW_VERSION\"/" README.md || true
+            sed -i "s/version-.*-blue/version-$NEW_VERSION-blue/" README.md || true
+          fi
+          
+          # Commit version change
+          git add Cargo.toml Cargo.lock README.md 2>/dev/null || git add Cargo.toml Cargo.lock
+          git commit -m "chore(release): bump version to $NEW_VERSION
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ env.RELEASE_VERSION }}
-          release_name: Release ${{ env.RELEASE_VERSION }}
-          draft: false
-          prerelease: false
-          body: |
-            ## Changes in this Release
-            
-            ### Features
-            - 
-            
-            ### Bug Fixes
-            - 
-            
-            ### Documentation
-            - 
-            
-            **Full Changelog**: https://github.com/ThreatFlux/gguf/compare/previous...${{ env.RELEASE_VERSION }}
+          Auto-generated release commit"
+          
+          # Create and push tag
+          git tag -a "v$NEW_VERSION" -m "Release v$NEW_VERSION"
+          git push origin main
+          git push origin "v$NEW_VERSION"
+        else
+          echo "version_changed=false" >> $GITHUB_OUTPUT
+        fi
 
-  build-release:
-    name: Build Release Binaries
-    needs: create-release
-    runs-on: ${{ matrix.os }}
+  # Build and test release
+  build-and-test:
+    name: Build and Test Release
+    needs: [version-bump]
+    if: needs.version-bump.outputs.version_changed == 'true'
     strategy:
-      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_name: gguf-cli
-            asset_name: gguf-cli-linux-amd64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            binary_name: gguf-cli
-            asset_name: gguf-cli-linux-arm64
-            use_cross: true
-          - os: windows-latest
+          - os: windows-latest  
             target: x86_64-pc-windows-msvc
-            binary_name: gguf-cli.exe
-            asset_name: gguf-cli-windows-amd64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_name: gguf-cli
-            asset_name: gguf-cli-macos-amd64
           - os: macos-latest
             target: aarch64-apple-darwin
-            binary_name: gguf-cli
-            asset_name: gguf-cli-macos-arm64
-
+    runs-on: ${{ matrix.os }}
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.version-bump.outputs.new_version }}
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
 
-      - name: Install cross
-        if: matrix.use_cross
-        run: cargo install cross
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build binary
-        run: |
-          if [ "${{ matrix.use_cross }}" == "true" ]; then
-            cross build --release --target ${{ matrix.target }} --package gguf-cli
-          else
-            cargo build --release --target ${{ matrix.target }} --package gguf-cli
-          fi
-        shell: bash
+    - name: Build release
+      run: cargo build --release --all-features --target ${{ matrix.target }}
 
-      - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: target/${{ matrix.target }}/release/${{ matrix.binary_name }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
+    - name: Run tests
+      if: matrix.target != 'aarch64-apple-darwin'  # Can't run ARM tests on x86
+      run: cargo test --release --all-features --target ${{ matrix.target }}
 
-  publish-crates:
-    name: Publish to crates.io
-    needs: create-release
+    - name: Build no-std
+      run: cargo build --release --no-default-features --features alloc --target ${{ matrix.target }}
+
+  # Create GitHub release
+  create-release:
+    name: Create GitHub Release
+    needs: [version-bump, build-and-test]
     runs-on: ubuntu-latest
+    if: needs.version-bump.outputs.version_changed == 'true'
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    
     steps:
-      - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.version-bump.outputs.new_version }}
+        fetch-depth: 0
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+    - name: Generate changelog
+      id: changelog
+      run: |
+        LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        if [ -z "$LAST_TAG" ]; then
+          COMMIT_RANGE="HEAD"
+        else
+          COMMIT_RANGE="$LAST_TAG..HEAD"
+        fi
+        
+        echo "## What's Changed" > release_notes.md
+        echo "" >> release_notes.md
+        
+        # Group commits by type
+        echo "### Features" >> release_notes.md
+        git log --pretty=format:"- %s (%h)" $COMMIT_RANGE | grep -E "^- (feat|feature):" | sed 's/^- feat[^:]*: /- /' >> release_notes.md || echo "" >> release_notes.md
+        
+        echo "" >> release_notes.md
+        echo "### Bug Fixes" >> release_notes.md
+        git log --pretty=format:"- %s (%h)" $COMMIT_RANGE | grep "^- fix:" | sed 's/^- fix: /- /' >> release_notes.md || echo "" >> release_notes.md
+        
+        echo "" >> release_notes.md
+        echo "### Performance" >> release_notes.md
+        git log --pretty=format:"- %s (%h)" $COMMIT_RANGE | grep "^- perf:" | sed 's/^- perf: /- /' >> release_notes.md || echo "" >> release_notes.md
+        
+        echo "" >> release_notes.md
+        echo "### Other Changes" >> release_notes.md
+        git log --pretty=format:"- %s (%h)" $COMMIT_RANGE | grep -v -E "^- (feat|feature|fix|perf|chore\(release\)|docs|test|ci):" >> release_notes.md || echo "" >> release_notes.md
+        
+        echo "" >> release_notes.md
+        echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${{ needs.version-bump.outputs.new_version }}" >> release_notes.md
 
-      - name: Publish to crates.io
-        run: |
-          cargo publish --token ${{ secrets.CRATES_IO_TOKEN }} --no-verify
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    - name: Create Release
+      id: create_release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.version-bump.outputs.new_version }}
+        name: GGUF ${{ needs.version-bump.outputs.new_version }}
+        body_path: release_notes.md
+        draft: false
+        prerelease: ${{ contains(needs.version-bump.outputs.new_version, '-') }}
+        generate_release_notes: true
+
+  # Publish to crates.io
+  publish-crate:
+    name: Publish to crates.io
+    needs: [version-bump, build-and-test, create-release]
+    runs-on: ubuntu-latest
+    if: needs.version-bump.outputs.version_changed == 'true'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.version-bump.outputs.new_version }}
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Verify package
+      run: |
+        cargo package --allow-dirty
+        cargo package --list
+
+    - name: Check crates.io token
+      id: check-token
+      run: |
+        if [[ -n "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]]; then
+          echo "has-token=true" >> $GITHUB_OUTPUT
+        else
+          echo "has-token=false" >> $GITHUB_OUTPUT
+          echo "⚠️ CARGO_REGISTRY_TOKEN not set. Skipping crates.io publish."
+        fi
+
+    - name: Publish to crates.io
+      if: steps.check-token.outputs.has-token == 'true'
+      run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty
+      continue-on-error: true
+
+  # Build example binaries
+  build-examples:
+    name: Build Example Binaries
+    needs: [version-bump, create-release]
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: linux-amd64
+          # Windows
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: windows-amd64
+          # macOS
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macos-arm64
+    
+    runs-on: ${{ matrix.os }}
+    if: needs.version-bump.outputs.version_changed == 'true'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.version-bump.outputs.new_version }}
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: ${{ matrix.target }}
+
+    - name: Build examples
+      run: |
+        cargo build --release --examples --features std --target ${{ matrix.target }}
+
+    - name: Create archive (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        cd target/${{ matrix.target }}/release/examples
+        tar czf ../../../../gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.tar.gz *
+        cd ../../../../
+        shasum -a 256 gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.tar.gz > gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.tar.gz.sha256
+
+    - name: Create archive (Windows)
+      if: runner.os == 'Windows'
+      shell: bash
+      run: |
+        cd target/${{ matrix.target }}/release/examples
+        7z a ../../../../gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.zip *.exe
+        cd ../../../../
+        sha256sum gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.zip > gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.zip.sha256
+
+    - name: Upload examples to release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ needs.version-bump.outputs.new_version }}
+        files: |
+          gguf-examples-${{ needs.version-bump.outputs.new_version }}-${{ matrix.name }}.*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Update documentation
+  update-documentation:
+    name: Update Documentation
+    needs: [version-bump, publish-crate]
+    runs-on: ubuntu-latest
+    if: needs.version-bump.outputs.version_changed == 'true' && !contains(needs.version-bump.outputs.new_version, '-')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ needs.version-bump.outputs.new_version }}
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@nightly
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-docs-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Generate documentation
+      run: |
+        cargo +nightly doc --all-features --no-deps
+        echo '<meta http-equiv="refresh" content="0; url=gguf">' > target/doc/index.html
+        
+        # Add README to docs
+        if [ -f "README.md" ]; then
+          cp README.md target/doc/
+        fi
+
+    - name: Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./target/doc
+        cname: gguf.threatflux.com
+
+  # Notify completion
+  notify:
+    name: Release Complete
+    needs: [version-bump, build-and-test, create-release, publish-crate, build-examples, update-documentation]
+    runs-on: ubuntu-latest
+    if: always() && needs.version-bump.outputs.version_changed == 'true'
+    
+    steps:
+    - name: Release Status
+      run: |
+        if [ "${{ needs.build-and-test.result }}" = "success" ] && \
+           [ "${{ needs.create-release.result }}" = "success" ]; then
+          echo "✅ Auto-release ${{ needs.version-bump.outputs.new_version }} completed successfully!"
+          echo "📦 Package verified for crates.io"
+          echo "📚 Documentation updated"
+          echo "🎯 Example binaries built"
+          
+          if [ "${{ needs.publish-crate.result }}" = "success" ]; then
+            echo "✅ Published to crates.io"
+          else
+            echo "⚠️ crates.io publish skipped or failed (may need manual publish)"
+          fi
+        else
+          echo "❌ Auto-release ${{ needs.version-bump.outputs.new_version }} failed"
+          echo "Build/Test: ${{ needs.build-and-test.result }}"
+          echo "Release: ${{ needs.create-release.result }}"
+          echo "Crate Publish: ${{ needs.publish-crate.result }}" 
+          exit 1
+        fi
+
+    - name: Create issue for release notes
+      if: success()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const version = '${{ needs.version-bump.outputs.new_version }}';
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `📦 Release ${version} Published`,
+            body: `## Release ${version} has been published!
+            
+            ### ✅ Completed Actions
+            - GitHub Release created with changelog
+            - Example binaries built for all platforms
+            - Documentation updated on GitHub Pages
+            ${
+              '${{ needs.publish-crate.result }}' === 'success' 
+                ? '- Published to crates.io' 
+                : '- ⚠️ crates.io publish pending (set CARGO_REGISTRY_TOKEN secret to enable)'
+            }
+            
+            ### 📚 Links
+            - [Release Notes](https://github.com/${{ github.repository }}/releases/tag/${version})
+            - [Documentation](https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }})
+            - [Crates.io](https://crates.io/crates/gguf)
+            
+            ### 📦 Installation
+            \`\`\`toml
+            [dependencies]
+            gguf = "${version.substring(1)}"
+            \`\`\`
+            
+            This issue was auto-generated by the release workflow.`,
+            labels: ['release', 'documentation']
+          });
+          
+          // Auto-close the issue
+          await github.rest.issues.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issue.data.number,
+            state: 'closed'
+          });
