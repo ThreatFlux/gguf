@@ -6,7 +6,7 @@ Thank you for your interest in contributing to `gguf_rs`! This document provides
 
 ### Prerequisites
 
-- Rust 1.70.0 or later
+- Rust 1.95.0 or later
 - Git
 - A GitHub account
 

@@ -34,6 +34,8 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Build
         run: cargo build --all-features

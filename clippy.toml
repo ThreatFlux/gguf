@@ -44,4 +44,4 @@ future-size-threshold = 16384
 
 # Suppress specific lints that may not apply to this project
 # These can be uncommented and customized as needed
-# msrv = "1.70.0"  # Minimum supported Rust version
+# msrv = "1.95.0"  # Minimum supported Rust version

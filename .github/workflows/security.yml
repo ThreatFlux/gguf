@@ -42,6 +42,8 @@ jobs:
       
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
       
       - name: Install cargo-supply-chain
         run: cargo install cargo-supply-chain
