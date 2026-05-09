@@ -79,8 +79,8 @@ examples:
 
 # Check MSRV (Minimum Supported Rust Version)
 msrv:
-	@echo "Checking MSRV (1.89.0)..."
-	@cargo +1.89.0 check --all-features
+	@echo "Checking MSRV (1.95.0)..."
+	@cargo +1.95.0 check --all-features
 
 help:
 	@echo "Available targets:"

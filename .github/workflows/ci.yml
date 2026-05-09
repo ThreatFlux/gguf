@@ -20,7 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, '1.89.0']  # 1.89.0 is our MSRV
+        rust: [stable, beta, '1.95.0']  # 1.95.0 is our MSRV
         include:
           - os: ubuntu-latest
             rust: nightly
@@ -133,6 +133,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Check documentation
         run: cargo doc --no-deps --all-features --document-private-items
@@ -148,6 +150,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
@@ -163,6 +167,8 @@ jobs:
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.95.0
 
       - name: Run benchmarks
         run: cargo bench --no-run --all-features
