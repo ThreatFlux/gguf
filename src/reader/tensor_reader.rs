@@ -178,6 +178,7 @@ impl<R: Read> TensorReader<R> {
     }
 
     /// Validate tensor data integrity
+    #[allow(clippy::manual_is_multiple_of)]
     fn validate_tensor_integrity(&self, tensor_info: &TensorInfo, data: &TensorData) -> Result<()> {
         let expected_size = tensor_info.expected_data_size() as usize;
         if data.len() != expected_size {
@@ -192,7 +193,7 @@ impl<R: Read> TensorReader<R> {
         // Additional validation based on tensor type
         match tensor_info.tensor_type() {
             TensorType::F32 => {
-                if !data.len().is_multiple_of(4) {
+                if data.len() % 4 != 0 {
                     return Err(GGUFError::InvalidTensorData(format!(
                         "F32 tensor '{}' size not multiple of 4 bytes",
                         tensor_info.name()
@@ -200,7 +201,7 @@ impl<R: Read> TensorReader<R> {
                 }
             }
             TensorType::F16 | TensorType::BF16 => {
-                if !data.len().is_multiple_of(2) {
+                if data.len() % 2 != 0 {
                     return Err(GGUFError::InvalidTensorData(format!(
                         "F16/BF16 tensor '{}' size not multiple of 2 bytes",
                         tensor_info.name()
