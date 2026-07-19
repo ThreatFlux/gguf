@@ -120,19 +120,15 @@ impl<W: Write> TensorWriter<W> {
 
         // Type-specific validation
         match tensor_info.tensor_type() {
-            TensorType::F32 => {
-                if data.len() % 4 != 0 {
-                    return Err(GGUFError::InvalidTensorData(
-                        "F32 tensor size must be multiple of 4".to_string(),
-                    ));
-                }
+            TensorType::F32 if !data.len().is_multiple_of(4) => {
+                return Err(GGUFError::InvalidTensorData(
+                    "F32 tensor size must be multiple of 4".to_string(),
+                ));
             }
-            TensorType::F16 | TensorType::BF16 => {
-                if data.len() % 2 != 0 {
-                    return Err(GGUFError::InvalidTensorData(
-                        "F16/BF16 tensor size must be multiple of 2".to_string(),
-                    ));
-                }
+            TensorType::F16 | TensorType::BF16 if !data.len().is_multiple_of(2) => {
+                return Err(GGUFError::InvalidTensorData(
+                    "F16/BF16 tensor size must be multiple of 2".to_string(),
+                ));
             }
             _ => {} // Other types don't need specific alignment
         }

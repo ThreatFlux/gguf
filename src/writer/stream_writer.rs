@@ -565,7 +565,7 @@ mod tests {
 
         let shape = TensorShape::new(vec![2]).unwrap();
         let tensor_info = TensorInfoNew::new("test".to_string(), shape, TensorType::F32, 0);
-        writer.write_tensor_infos(&vec![tensor_info.clone()]).unwrap();
+        writer.write_tensor_infos(std::slice::from_ref(&tensor_info)).unwrap();
         writer.align_for_tensor_data().unwrap();
 
         // Try wrong-sized data
@@ -595,7 +595,7 @@ mod tests {
 
         let shape = TensorShape::new(vec![4]).unwrap();
         let tensor_info = TensorInfoNew::new("test".to_string(), shape, TensorType::F32, 0);
-        writer.write_tensor_infos(&vec![tensor_info.clone()]).unwrap();
+        writer.write_tensor_infos(std::slice::from_ref(&tensor_info)).unwrap();
         writer.align_for_tensor_data().unwrap();
 
         // Write tensor data in chunks

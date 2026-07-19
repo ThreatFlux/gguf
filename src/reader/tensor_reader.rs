@@ -192,7 +192,7 @@ impl<R: Read> TensorReader<R> {
         // Additional validation based on tensor type
         match tensor_info.tensor_type() {
             TensorType::F32 => {
-                if data.len() % 4 != 0 {
+                if !data.len().is_multiple_of(4) {
                     return Err(GGUFError::InvalidTensorData(format!(
                         "F32 tensor '{}' size not multiple of 4 bytes",
                         tensor_info.name()
@@ -200,7 +200,7 @@ impl<R: Read> TensorReader<R> {
                 }
             }
             TensorType::F16 | TensorType::BF16 => {
-                if data.len() % 2 != 0 {
+                if !data.len().is_multiple_of(2) {
                     return Err(GGUFError::InvalidTensorData(format!(
                         "F16/BF16 tensor '{}' size not multiple of 2 bytes",
                         tensor_info.name()
@@ -395,11 +395,7 @@ pub struct TensorMemoryRequirements {
 impl TensorMemoryRequirements {
     /// Get the average tensor size
     pub fn average_tensor_size(&self) -> usize {
-        if self.tensor_count == 0 {
-            0
-        } else {
-            self.total_size / self.tensor_count
-        }
+        self.total_size.checked_div(self.tensor_count).unwrap_or(0)
     }
 
     /// Check if memory requirements are reasonable
