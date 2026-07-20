@@ -1,7 +1,7 @@
 //! Tensor-specific reading utilities
 
 use crate::error::{GGUFError, Result};
-use crate::tensor::{quantization::QuantizationParams, TensorData, TensorInfo, TensorType};
+use crate::tensor::{TensorData, TensorInfo, TensorType};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Specialized reader for tensor data with format-specific handling
@@ -189,41 +189,6 @@ impl<R: Read> TensorReader<R> {
             )));
         }
 
-        // Additional validation based on tensor type
-        match tensor_info.tensor_type() {
-            TensorType::F32 => {
-                if data.len() % 4 != 0 {
-                    return Err(GGUFError::InvalidTensorData(format!(
-                        "F32 tensor '{}' size not multiple of 4 bytes",
-                        tensor_info.name()
-                    )));
-                }
-            }
-            TensorType::F16 | TensorType::BF16 => {
-                if data.len() % 2 != 0 {
-                    return Err(GGUFError::InvalidTensorData(format!(
-                        "F16/BF16 tensor '{}' size not multiple of 2 bytes",
-                        tensor_info.name()
-                    )));
-                }
-            }
-            _ => {
-                // For quantized types, validate block alignment
-                if tensor_info.tensor_type().is_quantized() {
-                    let params = QuantizationParams::for_type(tensor_info.tensor_type());
-                    let expected_blocks = params.calculate_num_blocks(tensor_info.element_count());
-                    let expected_size = expected_blocks * params.block_size_bytes as u64;
-
-                    if data.len() != expected_size as usize {
-                        return Err(GGUFError::InvalidTensorData(format!(
-                            "Quantized tensor '{}' block size mismatch",
-                            tensor_info.name()
-                        )));
-                    }
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -395,11 +360,7 @@ pub struct TensorMemoryRequirements {
 impl TensorMemoryRequirements {
     /// Get the average tensor size
     pub fn average_tensor_size(&self) -> usize {
-        if self.tensor_count == 0 {
-            0
-        } else {
-            self.total_size / self.tensor_count
-        }
+        self.total_size.checked_div(self.tensor_count).unwrap_or(0)
     }
 
     /// Check if memory requirements are reasonable

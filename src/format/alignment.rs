@@ -43,7 +43,7 @@ pub fn is_aligned(position: usize, alignment: usize) -> bool {
     if alignment == 0 || alignment == 1 {
         return true;
     }
-    position % alignment == 0
+    position.is_multiple_of(alignment)
 }
 
 /// Check if a position is aligned to the default boundary

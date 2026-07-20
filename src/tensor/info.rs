@@ -334,7 +334,7 @@ impl TensorInfo {
     /// Calculate statistics for F32 data
     fn calculate_f32_stats(&self, data: &TensorData) -> Option<TensorStats> {
         let bytes = data.as_slice();
-        if bytes.len() % 4 != 0 {
+        if !bytes.len().is_multiple_of(4) {
             return None;
         }
 

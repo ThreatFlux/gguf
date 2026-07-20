@@ -22,7 +22,7 @@ use alloc::{
 use core::{fmt, mem};
 
 /// Container for tensor data with different storage backends
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum TensorData {
     /// Owned byte vector (most common case)
     Owned(Vec<u8>),
@@ -45,6 +45,7 @@ pub enum TensorData {
     },
 
     /// Empty/uninitialized data
+    #[default]
     Empty,
 }
 
@@ -226,7 +227,7 @@ impl TensorData {
         }
 
         let ptr = self.as_slice().as_ptr() as usize;
-        ptr % alignment == 0
+        ptr.is_multiple_of(alignment)
     }
 
     /// Get the alignment of the data pointer
@@ -241,7 +242,7 @@ impl TensorData {
         let mut alignment = 1;
         let mut test_ptr = ptr;
 
-        while test_ptr % 2 == 0 && alignment < 4096 {
+        while test_ptr.is_multiple_of(2) && alignment < 4096 {
             alignment *= 2;
             test_ptr /= 2;
         }
@@ -400,12 +401,6 @@ impl TensorMemoryUsage {
     /// Get overhead in bytes
     pub fn overhead_bytes(&self) -> usize {
         self.allocated_bytes.saturating_sub(self.used_bytes)
-    }
-}
-
-impl Default for TensorData {
-    fn default() -> Self {
-        Self::Empty
     }
 }
 
