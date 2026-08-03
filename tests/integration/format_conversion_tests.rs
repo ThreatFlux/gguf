@@ -51,7 +51,7 @@ fn test_endianness_handling() {
         0xCAFEBABEu32 as f32,
     ];
 
-    builder = builder.add_f32_tensor("endian_test", vec![4], test_values.clone());
+    builder = builder.add_f32_tensor("endian_test", vec![4], test_values.clone()).unwrap();
 
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build");
 
@@ -99,9 +99,13 @@ fn test_alignment_handling() {
     // Add tensors that will require alignment
     builder = builder
         .add_f32_tensor("tensor1", vec![1], vec![1.0]) // 4 bytes
+        .unwrap()
         .add_f32_tensor("tensor2", vec![3], vec![1.0, 2.0, 3.0]) // 12 bytes
+        .unwrap()
         .add_f32_tensor("tensor3", vec![7], vec![1.0; 7]) // 28 bytes
-        .add_f32_tensor("tensor4", vec![10], vec![1.0; 10]); // 40 bytes
+        .unwrap()
+        .add_f32_tensor("tensor4", vec![10], vec![1.0; 10]) // 40 bytes
+        .unwrap();
 
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build with alignment");
 
@@ -187,11 +191,11 @@ fn test_large_metadata() {
     }
 
     // Add a few tensors too
-    builder = builder.add_f32_tensor("tensor1", vec![100], vec![0.0; 100]).add_i32_tensor(
-        "tensor2",
-        vec![50],
-        (0..50).collect(),
-    );
+    builder = builder
+        .add_f32_tensor("tensor1", vec![100], vec![0.0; 100])
+        .unwrap()
+        .add_i32_tensor("tensor2", vec![50], (0..50).collect())
+        .unwrap();
 
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build large metadata");
     assert!(bytes.len() > 100_000); // Should be substantial
@@ -242,7 +246,7 @@ fn test_tensor_name_edge_cases() {
 
     for (i, name) in test_names.iter().enumerate() {
         let data = vec![i as f32; 10];
-        builder = builder.add_f32_tensor(*name, vec![10], data);
+        builder = builder.add_f32_tensor(*name, vec![10], data).unwrap();
     }
 
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build with various names");
@@ -278,8 +282,7 @@ fn test_tensor_name_edge_cases() {
     }
 
     // Test that empty tensor name is properly rejected
-    let builder_empty = GGUFBuilder::new();
-    let result = builder_empty.add_f32_tensor("", vec![1], vec![1.0]).build_to_bytes();
+    let result = GGUFBuilder::new().add_f32_tensor("", vec![1], vec![1.0]);
     assert!(result.is_err(), "Empty tensor name should be rejected");
 }
 
@@ -292,12 +295,16 @@ fn test_zero_sized_tensors() {
     // Add tensors with zero elements
     builder = builder
         .add_f32_tensor("empty_1d", vec![0], vec![])
+        .unwrap()
         .add_f32_tensor("empty_2d", vec![0, 5], vec![])
+        .unwrap()
         .add_f32_tensor("empty_3d", vec![2, 0, 3], vec![])
-        .add_i32_tensor("empty_i32", vec![0], vec![]);
+        .unwrap()
+        .add_i32_tensor("empty_i32", vec![0], vec![])
+        .unwrap();
 
     // Also add a normal tensor for comparison
-    builder = builder.add_f32_tensor("normal", vec![3], vec![1.0, 2.0, 3.0]);
+    builder = builder.add_f32_tensor("normal", vec![3], vec![1.0, 2.0, 3.0]).unwrap();
 
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build with empty tensors");
 
@@ -341,11 +348,15 @@ fn test_file_size_calculation() {
     // Add known amounts of data
     let tensor1_elements = 1000;
     let tensor1_data = vec![1.0f32; tensor1_elements];
-    builder = builder.add_f32_tensor("tensor1", vec![tensor1_elements as u64], tensor1_data);
+    builder = builder
+        .add_f32_tensor("tensor1", vec![tensor1_elements as u64], tensor1_data)
+        .unwrap();
 
     let tensor2_elements = 500;
     let tensor2_data = vec![42i32; tensor2_elements];
-    builder = builder.add_i32_tensor("tensor2", vec![tensor2_elements as u64], tensor2_data);
+    builder = builder
+        .add_i32_tensor("tensor2", vec![tensor2_elements as u64], tensor2_data)
+        .unwrap();
 
     // Build to get size information
     let temp_file = NamedTempFile::new().expect("Failed to create temp file");

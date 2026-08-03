@@ -14,6 +14,12 @@ use tempfile::NamedTempFile;
 #[cfg(feature = "std")]
 #[test]
 fn test_complete_workflow() {
+    // Keep the structural coverage representative without allocating a
+    // production-sized model in unit-test processes.
+    let vocab_size = 257usize;
+    let embed_dim = 32usize;
+    let ff_dim = 64usize;
+
     // Create a complex model with multiple tensors and metadata
     let mut builder = GGUFBuilder::simple("integration_test_model", "A comprehensive test model");
 
@@ -24,10 +30,10 @@ fn test_complete_workflow() {
         .add_metadata("model.license", MetadataValue::String("MIT".to_string()))
         .add_metadata("model.layers", MetadataValue::U32(12))
         .add_metadata("model.parameters", MetadataValue::U64(175_000_000))
-        .add_metadata("model.vocab_size", MetadataValue::U32(50257))
+        .add_metadata("model.vocab_size", MetadataValue::U32(vocab_size as u32))
         .add_metadata("model.context_length", MetadataValue::U32(2048))
-        .add_metadata("model.embedding_length", MetadataValue::U32(768))
-        .add_metadata("model.feed_forward_length", MetadataValue::U32(3072))
+        .add_metadata("model.embedding_length", MetadataValue::U32(embed_dim as u32))
+        .add_metadata("model.feed_forward_length", MetadataValue::U32(ff_dim as u32))
         .add_metadata("model.attention_heads", MetadataValue::U32(12))
         .add_metadata("model.fine_tuned", MetadataValue::Bool(false))
         .add_metadata("training.learning_rate", MetadataValue::F32(0.0001))
@@ -35,17 +41,17 @@ fn test_complete_workflow() {
         .add_metadata("training.epochs", MetadataValue::U32(10));
 
     // Add embedding matrix
-    let vocab_size = 50257;
-    let embed_dim = 768;
     let embedding_weights: Vec<f32> = (0..(vocab_size * embed_dim))
         .map(|i| (i as f32 * 0.001) % 1.0) // Simple pattern for testing
         .collect();
 
-    builder = builder.add_f32_tensor(
-        "token_embd.weight",
-        vec![vocab_size as u64, embed_dim as u64],
-        embedding_weights.clone(),
-    );
+    builder = builder
+        .add_f32_tensor(
+            "token_embd.weight",
+            vec![embed_dim as u64, vocab_size as u64],
+            embedding_weights.clone(),
+        )
+        .unwrap();
 
     // Add transformer layers
     for layer in 0..12 {
@@ -54,32 +60,39 @@ fn test_complete_workflow() {
             .map(|i| ((i + layer * 1000) as f32 * 0.0001) % 0.1)
             .collect();
 
-        builder = builder.add_f32_tensor(
-            format!("blk.{}.attn_q.weight", layer),
-            vec![embed_dim as u64, embed_dim as u64],
-            attn_weights.clone(),
-        );
+        builder = builder
+            .add_f32_tensor(
+                format!("blk.{}.attn_q.weight", layer),
+                vec![embed_dim as u64, embed_dim as u64],
+                attn_weights.clone(),
+            )
+            .unwrap();
 
-        builder = builder.add_f32_tensor(
-            format!("blk.{}.attn_k.weight", layer),
-            vec![embed_dim as u64, embed_dim as u64],
-            attn_weights.clone(),
-        );
+        builder = builder
+            .add_f32_tensor(
+                format!("blk.{}.attn_k.weight", layer),
+                vec![embed_dim as u64, embed_dim as u64],
+                attn_weights.clone(),
+            )
+            .unwrap();
 
-        builder = builder.add_f32_tensor(
-            format!("blk.{}.attn_v.weight", layer),
-            vec![embed_dim as u64, embed_dim as u64],
-            attn_weights.clone(),
-        );
+        builder = builder
+            .add_f32_tensor(
+                format!("blk.{}.attn_v.weight", layer),
+                vec![embed_dim as u64, embed_dim as u64],
+                attn_weights.clone(),
+            )
+            .unwrap();
 
-        builder = builder.add_f32_tensor(
-            format!("blk.{}.attn_output.weight", layer),
-            vec![embed_dim as u64, embed_dim as u64],
-            attn_weights,
-        );
+        builder = builder
+            .add_f32_tensor(
+                format!("blk.{}.attn_output.weight", layer),
+                vec![embed_dim as u64, embed_dim as u64],
+                attn_weights,
+            )
+            .unwrap();
 
         // Feed-forward weights
-        let ff_dim = 3072;
         let ff_up_weights: Vec<f32> = (0..(embed_dim * ff_dim))
             .map(|i| ((i + layer * 2000) as f32 * 0.0001) % 0.1)
             .collect();
@@ -94,11 +107,13 @@ fn test_complete_workflow() {
                 vec![embed_dim as u64, ff_dim as u64],
                 ff_up_weights,
             )
+            .unwrap()
             .add_f32_tensor(
                 format!("blk.{}.ffn_down.weight", layer),
                 vec![ff_dim as u64, embed_dim as u64],
                 ff_down_weights,
-            );
+            )
+            .unwrap();
 
         // Layer normalization
         let ln_weights: Vec<f32> = (0..embed_dim).map(|i| 1.0 + (i as f32 * 0.001) % 0.1).collect();
@@ -111,21 +126,21 @@ fn test_complete_workflow() {
                 vec![embed_dim as u64],
                 ln_weights.clone(),
             )
+            .unwrap()
             .add_f32_tensor(
                 format!("blk.{}.attn_norm.bias", layer),
                 vec![embed_dim as u64],
                 ln_bias.clone(),
             )
+            .unwrap()
             .add_f32_tensor(
                 format!("blk.{}.ffn_norm.weight", layer),
                 vec![embed_dim as u64],
                 ln_weights,
             )
-            .add_f32_tensor(
-                format!("blk.{}.ffn_norm.bias", layer),
-                vec![embed_dim as u64],
-                ln_bias,
-            );
+            .unwrap()
+            .add_f32_tensor(format!("blk.{}.ffn_norm.bias", layer), vec![embed_dim as u64], ln_bias)
+            .unwrap();
     }
 
     // Add final layer norm and output projection
@@ -134,12 +149,15 @@ fn test_complete_workflow() {
 
     builder = builder
         .add_f32_tensor("output_norm.weight", vec![embed_dim as u64], final_ln)
+        .unwrap()
         .add_f32_tensor("output_norm.bias", vec![embed_dim as u64], final_ln_bias)
+        .unwrap()
         .add_f32_tensor(
             "output.weight",
             vec![embed_dim as u64, vocab_size as u64],
             embedding_weights, // Reuse embedding weights for output projection
-        );
+        )
+        .unwrap();
 
     // Build the model
     let temp_file = NamedTempFile::new().expect("Failed to create temp file");
@@ -150,7 +168,7 @@ fn test_complete_workflow() {
         result.total_bytes_written,
         result.tensor_results.len()
     );
-    assert!(result.total_bytes_written > 1_000_000); // Should be substantial
+    assert!(result.total_bytes_written > 400_000); // Still exercises a substantial multi-tensor file
     assert_eq!(result.tensor_results.len(), 1 + 12 * 10 + 3); // embedding + 12 layers * 10 tensors + final norm + output
 
     // Read back and verify
@@ -176,7 +194,7 @@ fn test_complete_workflow() {
     assert!(reader.get_tensor_info("output.weight").is_some());
 
     let embedding_info = reader.get_tensor_info("token_embd.weight").unwrap();
-    assert_eq!(embedding_info.shape().dimensions, vec![vocab_size as u64, embed_dim as u64]);
+    assert_eq!(embedding_info.shape().dimensions, vec![embed_dim as u64, vocab_size as u64]);
     assert_eq!(embedding_info.tensor_type(), TensorType::F32);
 
     // Load and verify some tensor data
@@ -224,7 +242,7 @@ fn test_round_trip_data_integrity() {
 
     for (name, shape, original_data) in test_cases {
         let mut builder = GGUFBuilder::new();
-        builder = builder.add_f32_tensor(name, shape.clone(), original_data.clone());
+        builder = builder.add_f32_tensor(name, shape.clone(), original_data.clone()).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
@@ -268,18 +286,22 @@ fn test_mixed_tensor_types() {
 
     // F32 tensor
     let f32_data = vec![1.0f32, 2.0, 3.0, 4.0];
-    builder = builder.add_f32_tensor("f32_tensor", vec![2, 2], f32_data.clone());
+    builder = builder.add_f32_tensor("f32_tensor", vec![2, 2], f32_data.clone()).unwrap();
 
     // I32 tensor
     let i32_data = vec![10i32, -20, 30, -40, 50];
-    builder = builder.add_i32_tensor("i32_tensor", vec![5], i32_data.clone());
+    builder = builder.add_i32_tensor("i32_tensor", vec![5], i32_data.clone()).unwrap();
 
     // Add some quantized data (simulated)
     let q4_data = vec![0u8; 36]; // 2 blocks of Q4_0 data (18 bytes each)
-    builder = builder.add_quantized_tensor("q4_tensor", vec![64], TensorType::Q4_0, q4_data);
+    builder = builder
+        .add_quantized_tensor("q4_tensor", vec![64], TensorType::Q4_0, q4_data)
+        .unwrap();
 
     let q8_data = vec![0u8; 68]; // 2 blocks of Q8_0 data (34 bytes each)
-    builder = builder.add_quantized_tensor("q8_tensor", vec![64], TensorType::Q8_0, q8_data);
+    builder = builder
+        .add_quantized_tensor("q8_tensor", vec![64], TensorType::Q8_0, q8_data)
+        .unwrap();
 
     // Build and read back
     let (bytes, _result) = builder.build_to_bytes().expect("Failed to build mixed model");

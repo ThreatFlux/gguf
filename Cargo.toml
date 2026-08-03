@@ -7,27 +7,27 @@ resolver = "2"
 
 [package]
 name = "gguf-rs-lib"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
+rust-version = "1.87"
 description = "A Rust library for reading and writing GGUF (GGML Universal Format) files"
-authors = ["Claude Code", "Wyatt Roersma"]
+authors = ["ThreatFlux", "Wyatt Roersma"]
 license = "MIT"
-repository = "https://github.com/ThreatFlux/gguf_rs"
-homepage = "https://github.com/ThreatFlux/gguf_rs"
+repository = "https://github.com/ThreatFlux/gguf"
+homepage = "https://github.com/ThreatFlux/gguf"
 documentation = "https://docs.rs/gguf-rs-lib"
 readme = "README.md"
+include = ["/src/**", "/tests/**", "/benches/**", "/examples/**", "/docs/**", "/README.md", "/CHANGELOG.md", "/SECURITY.md", "/LICENSE"]
 keywords = ["gguf", "ggml", "machine-learning", "format", "parser"]
 categories = ["parsing", "data-structures", "science"]
 
 [dependencies]
 # Core dependencies
 serde = { version = "1.0", features = ["derive"], default-features = false, optional = true }
-thiserror = { version = "1.0", default-features = false, optional = true }
-# Removed to avoid recursion issues - using manual endian conversion
-# byteorder = "1.5"
+thiserror = { version = "2.0", default-features = false, optional = true }
 
 # Core no_std support
-hashbrown = { version = "0.14", default-features = false, features = ["ahash"], optional = true }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher"], optional = true }
 libm = { version = "0.2", optional = true }
 
 # Optional dependencies for additional functionality
@@ -43,12 +43,9 @@ async = ["dep:tokio", "std"]
 mmap = ["dep:memmap2", "std"]
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
-tempfile = "3.8"
-tokio-test = "0.4"
-proptest = "1.4"
-quickcheck = "1.0"
-quickcheck_macros = "1.0"
+criterion = { version = "0.8", features = ["html_reports"] }
+tempfile = "3.27"
+proptest = "1.9"
 
 [[bench]]
 name = "gguf_benchmarks"

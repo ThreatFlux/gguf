@@ -1,258 +1,164 @@
-# Contributing to gguf_rs
+# Contributing to gguf-rs
 
-Thank you for your interest in contributing to `gguf_rs`! This document provides guidelines and information for contributors.
+Thank you for improving `gguf-rs-lib` or the workspace `gguf-cli`. Focused
+changes with reproducible tests are the easiest to review.
 
-## Getting Started
+## Before starting
 
-### Prerequisites
+- Search [existing issues](https://github.com/ThreatFlux/gguf/issues) and pull
+  requests.
+- Open an issue before a large API change, new format version, or new
+  quantization implementation.
+- Do not publish model files, credentials, private datasets, or generated
+  coverage output in a pull request.
+- Report security problems privately through
+  [GitHub security advisories](https://github.com/ThreatFlux/gguf/security/advisories/new).
 
-- Rust 1.95.0 or later
-- Git
-- A GitHub account
+## Development setup
 
-### Setting Up Your Development Environment
-
-1. Fork the repository on GitHub
-2. Clone your fork locally:
-   ```bash
-   git clone https://github.com/YOUR_USERNAME/gguf_rs.git
-   cd gguf_rs
-   ```
-3. Add the upstream remote:
-   ```bash
-   git remote add upstream https://github.com/ThreatFlux/gguf_rs.git
-   ```
-4. Create a new branch for your changes:
-   ```bash
-   git checkout -b feature/your-feature-name
-   ```
-
-### Building and Testing
+Install Rust with [rustup](https://rustup.rs/) and add the formatter and linter:
 
 ```bash
-# Build the library
-cargo build
+rustup component add rustfmt clippy
 
-# Run tests
-cargo test
-
-# Run tests with all features
-cargo test --all-features
-
-# Build and test the CLI
-cargo build -p gguf-cli
-cargo test -p gguf-cli
-
-# Run benchmarks
-cargo bench
-
-# Check formatting
-cargo fmt --check
-
-# Run clippy
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Generate documentation
-cargo doc --all-features --open
+git clone https://github.com/ThreatFlux/gguf.git
+cd gguf
+cargo fetch --locked
 ```
 
-## Code Style and Quality
+The workspace tracks `Cargo.lock` because it contains an application. Do not
+delete or ignore it. If an intentional dependency change updates the lockfile,
+include that update in the same pull request.
 
-### Formatting
+The package's declared `rust-version` and the CI matrix define supported
+compiler versions. New code must compile on the declared minimum version, not
+only on the latest stable toolchain.
 
-We use `rustfmt` to maintain consistent code formatting. The configuration is in `rustfmt.toml`. Please run `cargo fmt` before submitting your changes.
+## Make a change
 
-### Linting
+1. Create a focused branch from the current default branch.
+2. Add or update tests that demonstrate the behavior.
+3. Update public API docs, examples, and guides in the same change.
+4. Run the checks below.
+5. Describe compatibility, safety, and performance implications in the pull
+   request.
 
-We use Clippy with strict settings to catch common issues. Run `cargo clippy` and address any warnings or errors.
+Keep unrelated formatting or refactors out of a behavioral fix. Preserve
+backward compatibility unless a breaking change has been discussed and is
+intentional.
 
-### Documentation
+## Required local checks
 
-- All public APIs must be documented with doc comments
-- Use `//!` for module-level documentation
-- Use `///` for item documentation
-- Include examples in doc comments where appropriate
-- Run `cargo doc` to verify documentation builds correctly
-
-### Testing
-
-- Write unit tests for new functionality
-- Add integration tests for end-to-end functionality
-- Ensure all tests pass with `cargo test --all-features`
-- Add benchmarks for performance-critical code
-- Test with different feature combinations
-
-## Contributing Guidelines
-
-### Issues
-
-- Search existing issues before creating a new one
-- Use the provided issue templates
-- Provide clear reproduction steps for bugs
-- Include relevant system information
-
-### Pull Requests
-
-1. Create a focused pull request that addresses a single concern
-2. Write a clear title and description
-3. Include tests for new functionality
-4. Update documentation as needed
-5. Ensure CI passes
-6. Request review from maintainers
-
-### Commit Messages
-
-Use conventional commit format:
-
-- `feat: add support for GGUF v4 format`
-- `fix: handle malformed tensor data gracefully`
-- `docs: update README with new examples`
-- `test: add integration tests for async functionality`
-- `refactor: simplify metadata parsing logic`
-
-### Code Review Process
-
-1. All changes must be reviewed by at least one maintainer
-2. Address feedback promptly and thoroughly
-3. Keep discussions constructive and focused
-4. Squash commits before merging if requested
-
-## Feature Development
-
-### Adding New Features
-
-1. Discuss the feature in an issue first
-2. Start with a minimal implementation
-3. Add comprehensive tests
-4. Update documentation
-5. Consider backward compatibility
-6. Add feature flags for optional functionality
-
-### API Design Principles
-
-- **Safety**: Prefer safe Rust, document any unsafe usage
-- **Performance**: Optimize for common use cases, provide alternatives for edge cases
-- **Ergonomics**: Design intuitive APIs that prevent common mistakes
-- **Compatibility**: Maintain backward compatibility when possible
-- **Extensibility**: Design for future enhancements
-
-### Feature Flags
-
-Use feature flags appropriately:
-
-- `std`: Standard library support (default)
-- `async`: Async I/O support
-- `mmap`: Memory mapping support
-- `serde`: Serialization support
-
-Add new features behind feature flags when they:
-- Add significant dependencies
-- Are platform-specific
-- Are experimental or unstable
-
-## Testing Strategy
-
-### Unit Tests
-
-- Test individual functions and methods
-- Use property-based testing for complex logic
-- Mock external dependencies
-- Test error conditions
-
-### Integration Tests
-
-- Test end-to-end functionality
-- Use real GGUF files when possible
-- Test different feature combinations
-- Verify CLI functionality
-
-### Benchmarks
-
-- Benchmark performance-critical paths
-- Include memory usage measurements
-- Compare against baseline performance
-- Document performance characteristics
-
-## Documentation
-
-### Code Documentation
-
-```rust
-/// Reads a GGUF file from a reader.
-///
-/// This function parses the GGUF header, metadata, and tensor information
-/// from the provided reader. It performs validation to ensure the file
-/// follows the GGUF specification.
-///
-/// # Arguments
-///
-/// * `reader` - A type implementing `Read` trait
-///
-/// # Returns
-///
-/// * `Ok(GGUFFile)` - Successfully parsed GGUF file
-/// * `Err(GGUFError)` - Parsing error occurred
-///
-/// # Examples
-///
-/// ```rust
-/// use gguf::GGUFFile;
-/// use std::fs::File;
-///
-/// let file = File::open("model.gguf")?;
-/// let gguf = GGUFFile::read(file)?;
-/// println!("Loaded {} tensors", gguf.tensors().len());
-/// # Ok::<(), Box<dyn std::error::Error>>(())
-/// ```
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - The file has an invalid magic number
-/// - The GGUF version is unsupported
-/// - The file is truncated or malformed
-pub fn read<R: Read>(reader: R) -> Result<Self> {
-    // Implementation...
-}
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-features
+cargo test --locked -p gguf-rs-lib --doc --all-features
+cargo check --locked -p gguf-rs-lib --no-default-features --features alloc
+cargo build --locked -p gguf-rs-lib --examples --all-features
+python3 scripts/check_docs.py
+./scripts/check_package.sh
 ```
 
-### README and Guides
+`./scripts/run_quick_tests.sh` runs the shorter contributor loop.
+`./scripts/test-all.sh` runs the full repository check set. See the
+[testing guide](TESTING_GUIDE.md) for targeted commands and coverage.
 
-- Keep README up-to-date with latest features
-- Provide working examples
-- Document common use cases
-- Include performance characteristics
-- Link to detailed documentation
+## Code and API expectations
 
-## Release Process
+- Format with the repository's `rustfmt` configuration.
+- Treat Clippy warnings as errors.
+- Document every public API and its error conditions.
+- Prefer checked arithmetic and bounded allocation when parsing file-controlled
+  lengths, counts, dimensions, or offsets.
+- Avoid panics on malformed input. Convenience APIs that can panic must say so
+  in their documentation.
+- Keep unsafe code narrowly scoped, justify its invariants with a `// SAFETY:`
+  comment, and add boundary tests.
+- Do not claim support for a GGUF type until descriptor parsing, exact payload
+  sizing, and round-trip compatibility have been distinguished and tested.
 
-### Versioning
+## Format changes
 
-We follow Semantic Versioning (SemVer):
+A change that adds a GGUF version or tensor type should include:
 
-- **Major**: Breaking API changes
-- **Minor**: New features, backward compatible
-- **Patch**: Bug fixes, backward compatible
+- the authoritative upstream specification or implementation reference;
+- parser tests for valid, truncated, malformed, and unsupported input;
+- writer and independent-reader round-trip tests when writing is supported;
+- byte-order and alignment behavior;
+- exact block layout and size calculations for payload support;
+- updates to [format support](docs/format-support.md).
 
-### Changelog
+Recognizing a tensor type ID is not the same as implementing its quantization
+codec. Keep those claims separate in code, tests, and documentation.
 
-- Maintain CHANGELOG.md
-- Document all user-facing changes
-- Categorize changes (Added, Changed, Deprecated, Removed, Fixed, Security)
-- Include migration notes for breaking changes
+## Testing expectations
 
-## Getting Help
+Place focused unit tests with the relevant module or under `tests/unit/`.
+Cross-module workflows belong under `tests/integration/`. Use property tests
+for invariants over broad input spaces and keep regression seeds under
+`proptest-regressions/`.
 
-- Join discussions in GitHub Issues
-- Ask questions in GitHub Discussions
-- Check existing documentation and examples
-- Review the code for similar patterns
+Tests must be:
 
-## Recognition
+- deterministic and independent;
+- bounded in memory and runtime;
+- explicit about the feature set they require;
+- self-contained, using generated data or small reviewed fixtures;
+- free of dependencies on private or machine-local model paths.
 
-Contributors are recognized in:
-- CONTRIBUTORS file
-- Release notes
-- Git commit history
+Do not check in generated GGUF files from examples. If a binary fixture is
+necessary, place the smallest possible reviewed file under `tests/fixtures/`,
+document how it was produced, and ensure a test actually consumes it.
 
-Thank you for contributing to `gguf_rs`!
+## Documentation and examples
+
+Examples must build in the feature combinations they advertise and return a
+failure status when their operation fails. Avoid hardcoded model names or local
+`data/` paths.
+
+Run `python3 scripts/check_docs.py` after editing Markdown. The checker verifies
+relative links and rejects retired repository identifiers and stale example
+dependency versions.
+
+Performance claims require a reproducible benchmark, environment details, and
+a baseline that measures the same operation. Prefer a measured number with
+scope over words such as “fast” or “zero-copy.”
+
+## Package contents
+
+`gguf-rs-lib` uses an explicit package allowlist. Before changing it or adding
+new top-level content, run:
+
+```bash
+./scripts/check_package.sh
+```
+
+The package should contain the manifest, library source, license, README,
+changelog, public guides, and useful examples. It must not contain workflows,
+coverage reports, repository-only test output, local model files, or
+development scratchpads.
+
+`gguf-cli` is workspace-only and is not published separately.
+
+## Pull request checklist
+
+- [ ] The change is focused and its motivation is clear.
+- [ ] User-visible behavior has tests.
+- [ ] Public docs and examples match the implementation.
+- [ ] Supported feature combinations compile.
+- [ ] Format, Clippy, tests, docs, examples, and package checks pass.
+- [ ] `Cargo.lock` is unchanged unless dependency resolution intentionally
+      changed.
+- [ ] No generated binaries, coverage files, secrets, or large model data are
+      included.
+- [ ] Compatibility, unsafe-code, allocation, and performance effects are
+      described.
+
+Maintainers may ask for commits to be reorganized, but readable history matters
+more than a mechanically enforced commit-message convention.
+
+## License
+
+By contributing, you agree that your contribution is licensed under the
+repository's [MIT License](LICENSE).

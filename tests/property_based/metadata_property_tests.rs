@@ -12,7 +12,7 @@ use std::io::Cursor;
 // Strategy for generating metadata keys
 #[cfg(feature = "std")]
 fn metadata_key_strategy() -> impl Strategy<Value = String> {
-    "[a-zA-Z][a-zA-Z0-9._-]{0,30}" // Valid metadata key pattern
+    "[a-z0-9]{1,8}(_[a-z0-9]{1,8}){0,2}(\\.[a-z0-9]{1,8}(_[a-z0-9]{1,8}){0,2}){0,2}"
 }
 
 // Strategy for generating string values
@@ -174,7 +174,7 @@ proptest! {
     #[test]
     fn test_metadata_key_variations(
         base_key in "[a-z]{1,10}",
-        suffix in prop::option::of("[._-][a-z0-9]{1,5}")
+        suffix in prop::option::of("[._][a-z0-9]{1,5}")
     ) {
         let key = match suffix {
             Some(s) => format!("{}{}", base_key, s),

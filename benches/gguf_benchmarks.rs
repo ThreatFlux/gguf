@@ -1,8 +1,10 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use gguf_rs_lib::format::Metadata as FormatMetadata;
-use gguf_rs_lib::prelude::*;
-use gguf_rs_lib::reader::file_reader::GGUFFileReader;
-use gguf_rs_lib::tensor::{TensorData, TensorType};
+use criterion::{criterion_group, criterion_main, Criterion};
+use gguf_rs_lib::{
+    format::{Metadata, MetadataValue},
+    reader::GGUFFileReader,
+    tensor::{TensorData, TensorInfo, TensorShape, TensorType},
+};
+use std::hint::black_box;
 use std::io::Cursor;
 
 // Create some test GGUF data for benchmarking
@@ -31,11 +33,11 @@ fn benchmark_gguf_read(c: &mut Criterion) {
 }
 
 fn benchmark_metadata_operations(c: &mut Criterion) {
-    let mut metadata = FormatMetadata::new();
+    let mut metadata = Metadata::new();
 
     // Pre-populate with some data
     for i in 0..1000 {
-        metadata.insert(format!("key_{}", i), MetadataValue::U32(i));
+        metadata.insert(format!("key_{i}"), MetadataValue::U32(i));
     }
 
     c.bench_function("metadata_lookup", |b| {
@@ -57,13 +59,8 @@ fn benchmark_metadata_operations(c: &mut Criterion) {
 fn benchmark_tensor_operations(c: &mut Criterion) {
     let data = vec![0u8; 1024 * 1024]; // 1MB of data
     let tensor_data = TensorData::new_owned(data);
-    let tensor_shape = gguf_rs_lib::tensor::TensorShape::new(vec![256, 256, 4]).unwrap();
-    let tensor = gguf_rs_lib::tensor::TensorInfo::new(
-        "benchmark_tensor".to_string(),
-        tensor_shape,
-        TensorType::F32,
-        0,
-    );
+    let tensor_shape = TensorShape::new(vec![256, 256, 4]).unwrap();
+    let tensor = TensorInfo::new("benchmark_tensor".to_string(), tensor_shape, TensorType::F32, 0);
 
     c.bench_function("tensor_element_count", |b| b.iter(|| black_box(tensor.element_count())));
 

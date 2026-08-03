@@ -42,7 +42,7 @@ proptest! {
 
         // Build tensor
         let mut builder = GGUFBuilder::new();
-        builder = builder.add_f32_tensor(name.clone(), shape.clone(), data.clone());
+        builder = builder.add_f32_tensor(name.clone(), shape.clone(), data.clone()).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
@@ -86,7 +86,7 @@ proptest! {
         let _expected_elements = shape.iter().product::<u64>() as usize;
 
         let mut builder = GGUFBuilder::new();
-        builder = builder.add_i32_tensor(&name, shape.clone(), data.clone());
+        builder = builder.add_i32_tensor(&name, shape.clone(), data.clone()).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
 
@@ -125,7 +125,7 @@ proptest! {
         let data = vec![1.0f32; element_count as usize];
 
         let mut builder = GGUFBuilder::new();
-        builder = builder.add_f32_tensor("test", shape.clone(), data);
+        builder = builder.add_f32_tensor("test", shape.clone(), data).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
         let cursor = Cursor::new(bytes);
@@ -148,7 +148,7 @@ proptest! {
         let data = vec![]; // Empty data
 
         let mut builder = GGUFBuilder::new();
-        builder = builder.add_f32_tensor("empty", shape.clone(), data);
+        builder = builder.add_f32_tensor("empty", shape.clone(), data).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
         let cursor = Cursor::new(bytes);
@@ -179,7 +179,8 @@ proptest! {
         element_count in 1u64..1000
     ) {
         let shape = vec![element_count];
-        let expected_bytes = element_count * tensor_type.element_size() as u64;
+        let expected_bytes = element_count
+            * tensor_type.element_size().expect("strategy only generates scalar types") as u64;
 
         // Create appropriate data
         let data = TensorData::zeros(expected_bytes as usize);
@@ -198,7 +199,7 @@ proptest! {
 
     #[test]
     fn test_quantized_tensor_block_alignment(
-        element_count in 32u64..10000,  // Ensure we have at least one block
+        block_count in 1u64..313,
         quant_type in prop_oneof![
             Just(TensorType::Q4_0),
             Just(TensorType::Q4_1),
@@ -206,8 +207,10 @@ proptest! {
         ]
     ) {
         let block_size = quant_type.block_size() as u64;
-        let _block_count = element_count.div_ceil(block_size); // Round up
-        let expected_data_size = quant_type.calculate_size(element_count);
+        let element_count = block_count * block_size;
+        let expected_data_size = quant_type
+            .calculate_size(element_count)
+            .expect("strategy uses supported quantized tensor types");
 
         // Create mock quantized data of the right size
         let quantized_data = vec![0u8; expected_data_size as usize];
@@ -217,8 +220,8 @@ proptest! {
             "quantized",
             vec![element_count],
             quant_type,
-            quantized_data
-        );
+            quantized_data,
+        ).unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build");
         let cursor = Cursor::new(bytes);

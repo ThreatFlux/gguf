@@ -21,6 +21,27 @@ use alloc::{
 #[cfg(not(feature = "std"))]
 use core::{fmt, mem};
 
+fn checked_data_range(
+    start: usize,
+    length: usize,
+    available: usize,
+    description: &str,
+) -> Result<core::ops::Range<usize>> {
+    let end = start.checked_add(length).ok_or_else(|| {
+        GGUFError::InvalidTensorData(format!(
+            "{description} start {start} plus length {length} overflows usize"
+        ))
+    })?;
+
+    if end > available {
+        return Err(GGUFError::InvalidTensorData(format!(
+            "{description} {start}..{end} exceeds data length {available}"
+        )));
+    }
+
+    Ok(start..end)
+}
+
 /// Container for tensor data with different storage backends
 #[derive(Debug, Clone, Default)]
 pub enum TensorData {
@@ -105,19 +126,33 @@ impl TensorData {
         Self::Owned(vec![0u8; size])
     }
 
+    /// Fallibly create tensor data with the specified size filled with zeros.
+    pub fn try_zeros(size: usize) -> Result<Self> {
+        Self::try_filled(size, 0)
+    }
+
     /// Create tensor data with specified size filled with a value
     pub fn filled(size: usize, value: u8) -> Self {
         Self::Owned(vec![value; size])
     }
 
+    /// Fallibly create tensor data with the specified size and fill value.
+    pub fn try_filled(size: usize, value: u8) -> Result<Self> {
+        let mut data = Vec::new();
+        data.try_reserve_exact(size).map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Unable to allocate tensor data buffer of {} bytes",
+                size
+            ))
+        })?;
+        data.resize(size, value);
+        Ok(Self::Owned(data))
+    }
+
     /// Create memory-mapped tensor data
     #[cfg(feature = "mmap")]
     pub fn new_mapped(mmap: Arc<memmap2::Mmap>, offset: usize, length: usize) -> Result<Self> {
-        if offset + length > mmap.len() {
-            return Err(GGUFError::InvalidTensorData(
-                "Mapped region exceeds mmap bounds".to_string(),
-            ));
-        }
+        checked_data_range(offset, length, mmap.len(), "Mapped region")?;
 
         Ok(Self::Mapped { mmap, offset, length })
     }
@@ -146,15 +181,34 @@ impl TensorData {
         }
     }
 
-    /// Get a slice of the tensor data
+    /// Get a slice of the tensor data.
+    ///
+    /// A `Mapped` value constructed directly with an invalid range yields an
+    /// empty slice. Use [`Self::try_as_slice`] when invalid mapped data must be
+    /// distinguished from valid empty data.
     pub fn as_slice(&self) -> &[u8] {
+        self.try_as_slice().unwrap_or(&[])
+    }
+
+    /// Get a checked slice of the tensor data.
+    ///
+    /// Unlike [`Self::as_slice`], this reports an invalid directly constructed
+    /// memory-mapped range as [`GGUFError::InvalidTensorData`].
+    pub fn try_as_slice(&self) -> Result<&[u8]> {
         match self {
-            TensorData::Owned(data) => data,
-            TensorData::Borrowed(data) => data,
-            TensorData::Shared(data) => data,
+            TensorData::Owned(data) => Ok(data),
+            TensorData::Borrowed(data) => Ok(data),
+            TensorData::Shared(data) => Ok(data),
             #[cfg(feature = "mmap")]
-            TensorData::Mapped { mmap, offset, length } => &mmap[*offset..*offset + *length],
-            TensorData::Empty => &[],
+            TensorData::Mapped { mmap, offset, length } => {
+                let range = checked_data_range(*offset, *length, mmap.len(), "Mapped region")?;
+                mmap.get(range).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(
+                        "Mapped region could not be read from the memory map".to_string(),
+                    )
+                })
+            }
+            TensorData::Empty => Ok(&[]),
         }
     }
 
@@ -171,6 +225,21 @@ impl TensorData {
         self.as_slice().to_vec()
     }
 
+    /// Convert to owned data while reporting invalid mapped ranges and
+    /// allocation failure.
+    pub fn try_to_owned(&self) -> Result<Vec<u8>> {
+        let source = self.try_as_slice()?;
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(source.len()).map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Unable to allocate owned tensor buffer of {} bytes",
+                source.len()
+            ))
+        })?;
+        owned.extend_from_slice(source);
+        Ok(owned)
+    }
+
     /// Take ownership of the data if possible, otherwise clone
     pub fn into_owned(self) -> Vec<u8> {
         match self {
@@ -181,7 +250,10 @@ impl TensorData {
                 Arc::try_unwrap(data).unwrap_or_else(|shared| (*shared).clone())
             }
             #[cfg(feature = "mmap")]
-            TensorData::Mapped { mmap, offset, length } => mmap[offset..offset + length].to_vec(),
+            TensorData::Mapped { mmap, offset, length } => {
+                let range = checked_data_range(offset, length, mmap.len(), "Mapped region");
+                range.ok().and_then(|range| mmap.get(range)).unwrap_or(&[]).to_vec()
+            }
             TensorData::Empty => Vec::new(),
         }
     }
@@ -252,19 +324,38 @@ impl TensorData {
 
     /// Create a slice of the tensor data
     pub fn slice(&self, start: usize, length: usize) -> Result<TensorData> {
-        if start + length > self.len() {
-            return Err(GGUFError::InvalidTensorData(
-                "Slice bounds exceed data length".to_string(),
-            ));
-        }
+        let range = checked_data_range(start, length, self.len(), "Slice")?;
 
         match self {
-            TensorData::Owned(data) => Ok(TensorData::Owned(data[start..start + length].to_vec())),
-            TensorData::Borrowed(data) => Ok(TensorData::Borrowed(&data[start..start + length])),
-            TensorData::Shared(data) => Ok(TensorData::Owned(data[start..start + length].to_vec())),
+            TensorData::Owned(data) => {
+                data.get(range).map(|data| TensorData::Owned(data.to_vec())).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(
+                        "Slice could not be read from owned tensor data".to_string(),
+                    )
+                })
+            }
+            TensorData::Borrowed(data) => {
+                data.get(range).map(TensorData::Borrowed).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(
+                        "Slice could not be read from borrowed tensor data".to_string(),
+                    )
+                })
+            }
+            TensorData::Shared(data) => {
+                data.get(range).map(|data| TensorData::Owned(data.to_vec())).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(
+                        "Slice could not be read from shared tensor data".to_string(),
+                    )
+                })
+            }
             #[cfg(feature = "mmap")]
             TensorData::Mapped { mmap, offset, .. } => {
-                TensorData::new_mapped(mmap.clone(), offset + start, length)
+                let mapped_offset = offset.checked_add(start).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(format!(
+                        "Mapped slice offset {offset} plus start {start} overflows usize"
+                    ))
+                })?;
+                TensorData::new_mapped(mmap.clone(), mapped_offset, length)
             }
             TensorData::Empty => {
                 if start == 0 && length == 0 {
@@ -304,8 +395,9 @@ impl TensorData {
             return "[]".to_string();
         }
 
-        let hex: String = data[..preview_len]
+        let hex: String = data
             .iter()
+            .take(preview_len)
             .map(|b| format!("{:02x}", b))
             .collect::<Vec<_>>()
             .join(" ");
@@ -319,11 +411,13 @@ impl TensorData {
 
     /// Validate the tensor data for basic consistency
     pub fn validate(&self) -> Result<()> {
-        // All tensor data variants are valid - empty slices are allowed for zero-element tensors
-        Ok(())
+        self.try_as_slice().map(|_| ())
     }
 
-    /// Calculate a simple checksum of the data (for integrity checking)
+    /// Calculate a small non-cryptographic checksum for caller-side comparison.
+    ///
+    /// This value is not collision resistant and does not establish integrity
+    /// or authenticity without a separately trusted reference value.
     pub fn checksum(&self) -> u32 {
         let data = self.as_slice();
         let mut checksum = 0u32;
@@ -527,6 +621,13 @@ mod tests {
     }
 
     #[test]
+    fn test_fallible_tensor_data_allocation() {
+        assert_eq!(TensorData::try_zeros(4).unwrap().as_slice(), &[0; 4]);
+        assert_eq!(TensorData::try_filled(3, 7).unwrap().as_slice(), &[7; 3]);
+        assert!(TensorData::try_zeros(usize::MAX).is_err());
+    }
+
+    #[test]
     fn test_tensor_data_shared() {
         let data = vec![1, 2, 3, 4];
         let tensor_data = TensorData::new_shared(data.clone());
@@ -564,6 +665,43 @@ mod tests {
 
         // Test bounds checking
         assert!(tensor_data.slice(3, 5).is_err());
+    }
+
+    #[test]
+    fn test_tensor_data_slice_rejects_overflow_and_out_of_range() {
+        let tensor_data = TensorData::new_owned(vec![1, 2, 3]);
+
+        assert!(matches!(tensor_data.slice(1, usize::MAX), Err(GGUFError::InvalidTensorData(_))));
+        assert!(matches!(tensor_data.slice(usize::MAX, 0), Err(GGUFError::InvalidTensorData(_))));
+        assert_eq!(tensor_data.as_slice(), &[1, 2, 3]);
+    }
+
+    #[cfg(feature = "mmap")]
+    #[test]
+    fn test_mapped_tensor_data_rejects_invalid_ranges_without_panicking() {
+        use std::io::Write;
+
+        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+        temp_file.write_all(&[1, 2, 3, 4]).unwrap();
+        temp_file.flush().unwrap();
+        let mmap = Arc::new(unsafe { memmap2::Mmap::map(temp_file.as_file()).unwrap() });
+
+        assert!(matches!(
+            TensorData::new_mapped(mmap.clone(), 1, usize::MAX),
+            Err(GGUFError::InvalidTensorData(_))
+        ));
+        assert!(matches!(
+            TensorData::new_mapped(mmap.clone(), usize::MAX, 0),
+            Err(GGUFError::InvalidTensorData(_))
+        ));
+
+        let invalid = TensorData::Mapped { mmap, offset: usize::MAX, length: 1 };
+        assert!(matches!(invalid.try_as_slice(), Err(GGUFError::InvalidTensorData(_))));
+        assert!(matches!(invalid.try_to_owned(), Err(GGUFError::InvalidTensorData(_))));
+        assert!(invalid.as_slice().is_empty());
+        assert!(matches!(invalid.validate(), Err(GGUFError::InvalidTensorData(_))));
+        assert!(matches!(invalid.slice(0, 1), Err(GGUFError::InvalidTensorData(_))));
+        assert!(invalid.into_owned().is_empty());
     }
 
     #[test]

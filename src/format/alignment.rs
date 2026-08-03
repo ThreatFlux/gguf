@@ -1,11 +1,12 @@
 //! Data alignment utilities for GGUF files
 
+use crate::error::{GGUFError, Result};
 use crate::format::constants::GGUF_DEFAULT_ALIGNMENT;
 
 #[cfg(not(feature = "std"))]
 extern crate alloc;
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::{format, vec, vec::Vec};
 #[cfg(not(feature = "std"))]
 use core::{fmt, mem};
 
@@ -23,9 +24,17 @@ pub fn calculate_padding(current_position: usize, alignment: usize) -> usize {
     }
 }
 
-/// Align a position to the specified boundary
+/// Align a position to the specified boundary.
+///
+/// Returns `usize::MAX` if the aligned position cannot be represented. Use
+/// [`checked_align_to`] when overflow must be distinguished from that value.
 pub fn align_to(position: usize, alignment: usize) -> usize {
-    position + calculate_padding(position, alignment)
+    checked_align_to(position, alignment).unwrap_or(usize::MAX)
+}
+
+/// Align a position without overflowing.
+pub fn checked_align_to(position: usize, alignment: usize) -> Option<usize> {
+    position.checked_add(calculate_padding(position, alignment))
 }
 
 /// Align a position to the default GGUF alignment boundary
@@ -56,18 +65,29 @@ pub fn create_padding(size: usize) -> Vec<u8> {
     vec![0u8; size]
 }
 
-/// Calculate the aligned size for a given unaligned size
-pub fn aligned_size(size: usize, alignment: usize) -> usize {
-    if alignment == 0 || alignment == 1 {
-        return size;
-    }
+/// Fallibly create a zero-filled padding buffer.
+pub fn try_create_padding(size: usize) -> Result<Vec<u8>> {
+    let mut padding = Vec::new();
+    padding.try_reserve_exact(size).map_err(|_| {
+        GGUFError::InvalidTensorData(format!(
+            "Unable to allocate alignment padding of {} bytes",
+            size
+        ))
+    })?;
+    padding.resize(size, 0);
+    Ok(padding)
+}
 
-    let remainder = size % alignment;
-    if remainder == 0 {
-        size
-    } else {
-        size + (alignment - remainder)
-    }
+/// Calculate the aligned size for a given unaligned size.
+///
+/// Returns `usize::MAX` on overflow; use [`checked_aligned_size`] for a fallible result.
+pub fn aligned_size(size: usize, alignment: usize) -> usize {
+    checked_aligned_size(size, alignment).unwrap_or(usize::MAX)
+}
+
+/// Calculate an aligned size without overflowing.
+pub fn checked_aligned_size(size: usize, alignment: usize) -> Option<usize> {
+    checked_align_to(size, alignment)
 }
 
 /// Calculate the aligned size using default alignment
@@ -80,7 +100,9 @@ pub fn is_valid_alignment(alignment: usize) -> bool {
     alignment > 0 && (alignment & (alignment - 1)) == 0
 }
 
-/// Get the next power of 2 greater than or equal to the given value
+/// Get the next power of 2 greater than or equal to the given value.
+///
+/// Returns `usize::MAX` when the mathematical result is not representable.
 pub fn next_power_of_2(mut n: usize) -> usize {
     if n == 0 {
         return 1;
@@ -109,7 +131,7 @@ pub fn next_power_of_2(mut n: usize) -> usize {
             n |= n >> 32;
         }
     }
-    n + 1
+    n.saturating_add(1)
 }
 
 /// Alignment information for a data section
@@ -126,10 +148,13 @@ pub struct AlignmentInfo {
 }
 
 impl AlignmentInfo {
-    /// Create alignment information for a given position and alignment
+    /// Create alignment information for a given position and alignment.
+    ///
+    /// `aligned_position` saturates at `usize::MAX`; arithmetic-sensitive callers
+    /// should use [`checked_align_to`] directly.
     pub fn new(position: usize, alignment: usize) -> Self {
         let padding = calculate_padding(position, alignment);
-        let aligned_position = position + padding;
+        let aligned_position = position.saturating_add(padding);
 
         Self { position, alignment, padding, aligned_position }
     }
@@ -147,6 +172,11 @@ impl AlignmentInfo {
     /// Get the padding as a vector of zero bytes
     pub fn padding_bytes(&self) -> Vec<u8> {
         create_padding(self.padding)
+    }
+
+    /// Fallibly get the padding as a vector of zero bytes.
+    pub fn try_padding_bytes(&self) -> Result<Vec<u8>> {
+        try_create_padding(self.padding)
     }
 }
 
@@ -192,9 +222,15 @@ impl AlignmentTracker {
         Self::new(GGUF_DEFAULT_ALIGNMENT)
     }
 
-    /// Advance the position by the given amount
+    /// Advance the position by the given amount, saturating at `usize::MAX`.
     pub fn advance(&mut self, bytes: usize) {
-        self.position += bytes;
+        self.position = self.position.saturating_add(bytes);
+    }
+
+    /// Advance the position, returning `None` if it would overflow.
+    pub fn checked_advance(&mut self, bytes: usize) -> Option<()> {
+        self.position = self.position.checked_add(bytes)?;
+        Some(())
     }
 
     /// Calculate padding needed for default alignment
@@ -362,6 +398,10 @@ mod tests {
 
         let empty_padding = create_padding(0);
         assert!(empty_padding.is_empty());
+
+        assert_eq!(try_create_padding(5).unwrap(), vec![0u8; 5]);
+        assert!(try_create_padding(usize::MAX).is_err());
+        assert_eq!(AlignmentInfo::new(17, 32).try_padding_bytes().unwrap().len(), 15);
     }
 
     #[test]
@@ -371,5 +411,18 @@ mod tests {
         assert!(display_str.contains("17"));
         assert!(display_str.contains("32"));
         assert!(display_str.contains("15"));
+    }
+
+    #[test]
+    fn test_alignment_overflow_is_explicit() {
+        assert_eq!(checked_align_to(usize::MAX, 2), None);
+        assert_eq!(align_to(usize::MAX, 2), usize::MAX);
+        assert_eq!(checked_aligned_size(usize::MAX, 8), None);
+        assert_eq!(next_power_of_2(usize::MAX), usize::MAX);
+
+        let mut tracker = AlignmentTracker::new(8);
+        tracker.position = usize::MAX;
+        assert_eq!(tracker.checked_advance(1), None);
+        assert_eq!(tracker.position, usize::MAX);
     }
 }

@@ -78,7 +78,6 @@ impl MetadataBuilder {
         Self::new()
             .add_string("general.architecture", "llama")
             .add_string("general.name", name)
-            .add_u32("general.file_type", 1)
     }
 
     /// Create metadata for a vision model
@@ -86,19 +85,12 @@ impl MetadataBuilder {
         Self::new()
             .add_string("general.architecture", "clip")
             .add_string("general.name", name)
-            .add_u32("general.file_type", 1)
     }
 
     /// Add common LLaMA parameters
-    pub fn with_llama_params(
-        self,
-        context_length: u64,
-        embedding_length: u64,
-        vocab_size: u64,
-    ) -> Self {
-        self.add_u64("llama.context_length", context_length)
-            .add_u64("llama.embedding_length", embedding_length)
-            .add_u64("llama.vocab_size", vocab_size)
+    pub fn with_llama_params(self, context_length: u32, embedding_length: u32) -> Self {
+        self.add_u32("llama.context_length", context_length)
+            .add_u32("llama.embedding_length", embedding_length)
     }
 }
 
@@ -123,10 +115,13 @@ mod tests {
     #[test]
     fn test_language_model_metadata() {
         let metadata = MetadataBuilder::language_model("test_llama")
-            .with_llama_params(2048, 4096, 32000)
+            .with_llama_params(2048, 4096)
             .build();
 
         assert_eq!(metadata.get_string("general.architecture"), Some("llama"));
         assert_eq!(metadata.get_u64("llama.context_length"), Some(2048));
+        assert_eq!(metadata.get("llama.context_length"), Some(&MetadataValue::U32(2048)));
+        assert!(!metadata.contains_key("llama.vocab_size"));
+        assert!(!metadata.contains_key("general.file_type"));
     }
 }

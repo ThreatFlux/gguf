@@ -66,7 +66,7 @@ mod file_writer_tests {
         let mut writer = GGUFFileWriter::new(cursor);
 
         // Write header first (required before writing metadata)
-        let header = GGUFHeader::new(2, 0); // 2 metadata items, 0 tensors
+        let header = GGUFHeader::new(0, 2); // 0 tensors, 2 metadata items
         writer.write_header(&header).expect("Failed to write header");
 
         let mut metadata = Metadata::new();
@@ -96,8 +96,9 @@ mod file_writer_tests {
         let mut writer = GGUFFileWriter::new(cursor);
 
         // Write header first (required before writing tensor info)
-        let header = GGUFHeader::new(0, 1); // 0 metadata items, 1 tensor
+        let header = GGUFHeader::new(1, 0); // 1 tensor, 0 metadata items
         writer.write_header(&header).expect("Failed to write header");
+        writer.write_metadata(&Metadata::new()).expect("Failed to write metadata");
 
         let tensor_info = TensorInfo::new(
             "test_tensor".to_string(),
@@ -129,9 +130,6 @@ mod file_writer_tests {
 
         let mut writer = GGUFFileWriter::new(cursor);
 
-        // Must align for tensor data first
-        writer.align_for_tensor_data().expect("Failed to align for tensor data");
-
         let data = [1.0f32, 2.0f32, 3.0f32, 4.0f32];
         let bytes: Vec<u8> = data.iter().flat_map(|&f| f.to_le_bytes()).collect();
         let tensor_data = TensorData::new_owned(bytes);
@@ -142,6 +140,13 @@ mod file_writer_tests {
             TensorType::F32,
             0,
         );
+
+        writer.write_header(&GGUFHeader::new(1, 0)).expect("Failed to write header");
+        writer.write_metadata(&Metadata::new()).expect("Failed to write metadata");
+        writer
+            .write_tensor_infos(std::slice::from_ref(&tensor_info))
+            .expect("Failed to write tensor info");
+        writer.align_for_tensor_data().expect("Failed to align for tensor data");
 
         writer
             .write_tensor_data(&tensor_info, &tensor_data)
@@ -270,8 +275,7 @@ mod file_writer_tests {
         // Add metadata that might cause serialization issues
         invalid_metadata.insert("".to_string(), MetadataValue::String("".to_string()));
 
-        // Should still work with empty strings
-        writer.write_metadata(&invalid_metadata).expect("Should handle empty strings");
+        assert!(writer.write_metadata(&invalid_metadata).is_err());
     }
 }
 
@@ -531,14 +535,12 @@ mod tensor_writer_tests {
     }
 
     #[test]
-    #[ignore = "TensorWriter doesn't create complete GGUF files - needs refactoring to use GGUFBuilder"]
-    fn test_tensor_writer_empty_tensor() {
+    fn test_tensor_writer_empty_payload() {
         let mut buffer = Vec::new();
         let cursor = Cursor::new(&mut buffer);
 
         let mut tensor_writer = TensorWriter::new(cursor);
 
-        // Create empty tensor
         let data = TensorData::new_owned(vec![]);
         let info = TensorInfo::new(
             "empty_tensor".to_string(),
@@ -549,22 +551,12 @@ mod tensor_writer_tests {
 
         let result = tensor_writer.write_tensor(&info, &data).expect("Failed to add empty tensor");
 
-        // TensorWriter doesn't write complete files, just tensor data
         tensor_writer.flush().expect("Failed to flush");
+        assert_eq!(result.bytes_written, 0);
+        assert_eq!(result.position_after, 0);
+        assert_eq!(tensor_writer.position(), 0);
 
-        // TensorWriter just writes individual tensors, not collections
-        assert_eq!(result.bytes_written, 0); // Empty tensor has 0 bytes
-
-        // Verify the file can be read
-        let cursor = Cursor::new(&buffer);
-        let mut reader = GGUFFileReader::new(cursor).expect("Failed to read file");
-
-        let tensor_info = reader.get_tensor_info("empty_tensor").unwrap();
-        assert_eq!(tensor_info.element_count(), 0);
-
-        let loaded_data = reader.load_tensor_data("empty_tensor").expect("Failed to load data");
-        assert!(loaded_data.is_some());
-        assert_eq!(loaded_data.unwrap().len(), 0);
+        assert!(buffer.is_empty());
     }
 }
 
@@ -606,54 +598,32 @@ mod integration_write_read_tests {
     use super::*;
 
     #[test]
-    #[ignore = "TensorWriter doesn't create complete GGUF files - needs refactoring"]
     fn test_write_then_read_cycle() {
-        let mut buffer = Vec::new();
+        let expected = vec![1.0f32, 2.0, 3.0, 4.0];
+        let builder = GGUFBuilder::new()
+            .add_metadata("test.key", MetadataValue::String("value".to_string()))
+            .add_f32_tensor("test", vec![2, 2], expected.clone())
+            .expect("Failed to add tensor");
+        let (buffer, result) = builder.build_to_bytes().expect("Failed to build GGUF file");
 
-        // Write phase
-        {
-            let cursor = Cursor::new(&mut buffer);
-            let mut tensor_writer = TensorWriter::new(cursor);
+        assert_eq!(result.tensor_results.len(), 1);
 
-            // Add test data
-            let f32_data = [1.0f32, 2.0, 3.0, 4.0];
-            let bytes: Vec<u8> = f32_data.iter().flat_map(|&f| f.to_le_bytes()).collect();
-            let data = TensorData::new_owned(bytes);
-            let info = TensorInfo::new(
-                "test".to_string(),
-                TensorShape::new(vec![2, 2]).unwrap(),
-                TensorType::F32,
-                0,
-            );
-            tensor_writer.write_tensor(&info, &data).expect("Failed to add tensor");
+        let cursor = Cursor::new(&buffer);
+        let mut reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
 
-            let mut metadata = Metadata::new();
-            metadata.insert("key".to_string(), MetadataValue::String("value".to_string()));
+        assert_eq!(reader.tensor_count(), 1);
+        assert_eq!(reader.metadata().get_string("test.key"), Some("value"));
 
-            tensor_writer.flush().expect("Failed to flush");
-        }
+        let tensor_info = reader.get_tensor_info("test").expect("Missing tensor descriptor");
+        assert_eq!(tensor_info.tensor_type(), TensorType::F32);
+        assert_eq!(tensor_info.shape().dims(), &[2, 2]);
 
-        // Read phase
-        {
-            let cursor = Cursor::new(&buffer);
-            let mut reader = GGUFFileReader::new(cursor).expect("Failed to create reader");
-
-            assert_eq!(reader.tensor_count(), 1);
-            assert_eq!(reader.metadata().get_string("key"), Some("value"));
-
-            let tensor_info = reader.get_tensor_info("test").unwrap();
-            assert_eq!(tensor_info.tensor_type(), TensorType::F32);
-            assert_eq!(tensor_info.shape().dims(), &[2, 2]);
-
-            let data = reader.load_tensor_data("test").expect("Failed to load").unwrap();
-            assert_eq!(data.len(), 16); // 4 * 4 bytes
-
-            let floats: Vec<f32> = data
-                .as_slice()
-                .chunks_exact(4)
-                .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-                .collect();
-            assert_eq!(floats, vec![1.0, 2.0, 3.0, 4.0]);
-        }
+        let data = reader.load_tensor_data("test").expect("Failed to load").unwrap();
+        let floats: Vec<f32> = data
+            .as_slice()
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+        assert_eq!(floats, expected);
     }
 }

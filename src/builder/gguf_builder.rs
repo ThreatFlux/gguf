@@ -6,12 +6,10 @@
 //!
 //! ```rust
 //! # use gguf_rs_lib::prelude::*;
-//! # use gguf_rs_lib::format::metadata::MetadataValue;
 //! # fn main() -> Result<()> {
 //! // Create a language model GGUF file
 //! let builder = GGUFBuilder::language_model("my_llm", 2048, 768)
-//!     .add_metadata("general.architecture", MetadataValue::String("llama".to_string()))
-//!     .add_f32_tensor("embedding.weight", vec![1000, 768], vec![0.0; 768_000]);
+//!     .add_f32_tensor("token_embd.weight", vec![768, 1000], vec![0.0; 768_000])?;
 //!
 //! let (bytes, result) = builder.build_to_bytes()?;
 //! println!("Built GGUF file: {} bytes", result.total_bytes_written);
@@ -20,17 +18,18 @@
 //! ```
 
 use crate::error::{GGUFError, Result};
+use crate::format::constants::GGUF_QUANTIZATION_VERSION;
 use crate::format::Metadata;
 use crate::tensor::{TensorData, TensorInfo, TensorShape, TensorType};
 
 #[cfg(feature = "std")]
-use crate::writer::{GGUFFileWriter, GGUFWriteResult, GGUFWriterConfig};
+use crate::writer::{
+    create_gguf_file_with_config, GGUFFileWriter, GGUFWriteResult, GGUFWriterConfig,
+};
 #[cfg(feature = "std")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 #[cfg(feature = "std")]
-use std::fs::File;
-#[cfg(feature = "std")]
-use std::io::{BufWriter, Write};
+use std::io::Write;
 #[cfg(feature = "std")]
 use std::path::Path;
 
@@ -41,6 +40,8 @@ pub struct GGUFBuilder {
     metadata: Metadata,
     /// Tensors to include
     tensors: Vec<(TensorInfo, TensorData)>,
+    /// Tensor names used for immediate duplicate detection
+    tensor_name_index: HashSet<String>,
     /// Writer configuration
     config: Option<GGUFWriterConfig>,
 }
@@ -96,21 +97,63 @@ impl GGUFBuilder {
     where
         N: Into<String>,
     {
+        self.try_push_tensor(name.into(), shape, tensor_type, TensorData::new_owned(data))?;
+        Ok(self)
+    }
+
+    fn try_push_tensor(
+        &mut self,
+        name: String,
+        shape: Vec<u64>,
+        tensor_type: TensorType,
+        tensor_data: TensorData,
+    ) -> Result<()> {
         let shape = TensorShape::new(shape)?;
-        let tensor_info = TensorInfo::new(name.into(), shape, tensor_type, 0);
-        let tensor_data = TensorData::new_owned(data);
+        let tensor_info = TensorInfo::new(name, shape, tensor_type, 0);
+        tensor_info.validate()?;
 
         // Validate tensor data size
-        if tensor_data.len() != tensor_info.expected_data_size() as usize {
+        let expected_size =
+            usize::try_from(tensor_info.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData("Tensor size does not fit this platform".to_string())
+            })?;
+        if tensor_data.len() != expected_size {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Tensor data size mismatch: expected {}, got {}",
-                tensor_info.expected_data_size(),
+                expected_size,
                 tensor_data.len()
             )));
         }
 
+        if self.tensor_name_index.contains(tensor_info.name()) {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Duplicate tensor name: '{}'",
+                tensor_info.name()
+            )));
+        }
+
+        let indexed_name = try_clone_tensor_name(tensor_info.name())?;
+        self.tensors.try_reserve(1).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor descriptor".to_string())
+        })?;
+        self.tensor_name_index.try_reserve(1).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor-name index".to_string())
+        })?;
+        if !self.tensor_name_index.insert(indexed_name) {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Duplicate tensor name: '{}'",
+                tensor_info.name()
+            )));
+        }
         self.tensors.push((tensor_info, tensor_data));
-        Ok(self)
+        if tensor_type.is_quantized() && self.metadata.get("general.quantization_version").is_none()
+        {
+            self.metadata.insert(
+                "general.quantization_version".to_string(),
+                crate::format::metadata::MetadataValue::U32(GGUF_QUANTIZATION_VERSION),
+            );
+        }
+        Ok(())
     }
 
     /// Add a tensor with TensorData
@@ -124,19 +167,7 @@ impl GGUFBuilder {
     where
         N: Into<String>,
     {
-        let shape = TensorShape::new(shape)?;
-        let tensor_info = TensorInfo::new(name.into(), shape, tensor_type, 0);
-
-        // Validate tensor data size
-        if data.len() != tensor_info.expected_data_size() as usize {
-            return Err(GGUFError::InvalidTensorData(format!(
-                "Tensor data size mismatch: expected {}, got {}",
-                tensor_info.expected_data_size(),
-                data.len()
-            )));
-        }
-
-        self.tensors.push((tensor_info, data));
+        self.try_push_tensor(name.into(), shape, tensor_type, data)?;
         Ok(self)
     }
 
@@ -174,7 +205,9 @@ impl GGUFBuilder {
 
     /// Calculate total tensor data size
     pub fn total_tensor_size(&self) -> u64 {
-        self.tensors.iter().map(|(info, _)| info.expected_data_size()).sum()
+        self.tensors
+            .iter()
+            .fold(0u64, |total, (info, _)| total.saturating_add(info.expected_data_size()))
     }
 
     /// Get tensor names
@@ -184,18 +217,20 @@ impl GGUFBuilder {
 
     /// Check if a tensor exists
     pub fn has_tensor(&self, name: &str) -> bool {
-        self.tensors.iter().any(|(info, _)| info.name() == name)
+        self.tensor_name_index.contains(name)
     }
 
     /// Remove a tensor by name
     pub fn remove_tensor(mut self, name: &str) -> Self {
         self.tensors.retain(|(info, _)| info.name() != name);
+        self.tensor_name_index.remove(name);
         self
     }
 
     /// Clear all tensors
     pub fn clear_tensors(mut self) -> Self {
         self.tensors.clear();
+        self.tensor_name_index.clear();
         self
     }
 
@@ -218,9 +253,9 @@ impl GGUFBuilder {
 
     /// Build and write to a file path
     pub fn build_to_file<P: AsRef<Path>>(self, path: P) -> Result<GGUFWriteResult> {
-        let file = File::create(path)?;
-        let buf_writer = BufWriter::new(file);
-        self.build_to_writer(buf_writer)
+        self.validate()?;
+        let config = self.config.clone().unwrap_or_default();
+        create_gguf_file_with_config(path, &self.metadata, &self.tensors, config)
     }
 
     /// Build and return as bytes
@@ -232,12 +267,16 @@ impl GGUFBuilder {
 
     /// Validate the builder state before building
     pub fn validate(&self) -> Result<()> {
-        // Check for duplicate tensor names
-        let mut names = std::collections::HashSet::new();
+        self.metadata.validate()?;
+        if self.tensor_name_index.len() != self.tensors.len() {
+            return Err(GGUFError::InvalidTensorData(
+                "Tensor-name index is inconsistent with tensor descriptors".to_string(),
+            ));
+        }
         for (tensor_info, _) in &self.tensors {
-            if !names.insert(tensor_info.name()) {
+            if !self.tensor_name_index.contains(tensor_info.name()) {
                 return Err(GGUFError::InvalidTensorData(format!(
-                    "Duplicate tensor name: '{}'",
+                    "Tensor-name index is missing '{}'",
                     tensor_info.name()
                 )));
             }
@@ -247,6 +286,29 @@ impl GGUFBuilder {
         for (tensor_info, tensor_data) in &self.tensors {
             tensor_info.validate()?;
             tensor_data.validate()?;
+        }
+
+        if self.tensors.iter().any(|(info, _)| info.tensor_type().is_quantized()) {
+            match self.metadata.get("general.quantization_version") {
+                Some(crate::format::metadata::MetadataValue::U32(GGUF_QUANTIZATION_VERSION)) => {}
+                Some(crate::format::metadata::MetadataValue::U32(version)) => {
+                    return Err(GGUFError::InvalidMetadata(format!(
+                        "general.quantization_version must be {}, got {}",
+                        GGUF_QUANTIZATION_VERSION, version
+                    )));
+                }
+                Some(value) => {
+                    return Err(GGUFError::InvalidMetadata(format!(
+                        "general.quantization_version must be u32, got {}",
+                        value.value_type()
+                    )));
+                }
+                None => {
+                    return Err(GGUFError::InvalidMetadata(
+                        "Quantized tensors require general.quantization_version".to_string(),
+                    ));
+                }
+            }
         }
 
         Ok(())
@@ -297,19 +359,18 @@ impl GGUFBuilder {
         Self::new()
             .add_metadata("general.name", MetadataValue::String(name.into()))
             .add_metadata("general.description", MetadataValue::String(model_name.into()))
-            .add_metadata("general.file_type", MetadataValue::U32(1))
     }
 
     /// Create a GGUF builder for a language model
-    pub fn language_model<N>(name: N, context_length: u64, embedding_size: u64) -> Self
+    pub fn language_model<N>(name: N, context_length: u32, embedding_size: u32) -> Self
     where
         N: Into<String>,
     {
         use crate::format::metadata::MetadataValue;
 
         Self::simple(name, "Language Model")
-            .add_metadata("llama.context_length", MetadataValue::U64(context_length))
-            .add_metadata("llama.embedding_length", MetadataValue::U64(embedding_size))
+            .add_metadata("llama.context_length", MetadataValue::U32(context_length))
+            .add_metadata("llama.embedding_length", MetadataValue::U32(embedding_size))
             .add_metadata("general.architecture", MetadataValue::String("llama".to_string()))
     }
 
@@ -322,7 +383,7 @@ impl GGUFBuilder {
     ) -> Result<Self> {
         self.add_tensor(
             "token_embd.weight",
-            vec![vocab_size, embedding_size],
+            vec![embedding_size, vocab_size],
             TensorType::F32,
             data,
         )
@@ -339,27 +400,45 @@ impl GGUFBuilder {
     }
 
     /// Add a tensor with F32 data
-    pub fn add_f32_tensor<N: Into<String>>(self, name: N, shape: Vec<u64>, data: Vec<f32>) -> Self {
-        // Convert f32 data to bytes
-        let mut bytes = Vec::with_capacity(data.len() * 4);
+    pub fn add_f32_tensor<N: Into<String>>(
+        self,
+        name: N,
+        shape: Vec<u64>,
+        data: Vec<f32>,
+    ) -> Result<Self> {
+        let byte_length = data.len().checked_mul(core::mem::size_of::<f32>()).ok_or_else(|| {
+            GGUFError::InvalidTensorData("F32 tensor byte length overflows usize".to_string())
+        })?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(byte_length).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate F32 tensor byte buffer".to_string())
+        })?;
         for value in data {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
 
-        // Use unwrap here since this is a convenience method and should panic if there's an error
-        self.add_tensor(name, shape, TensorType::F32, bytes).unwrap()
+        self.add_tensor(name, shape, TensorType::F32, bytes)
     }
 
     /// Add a tensor with I32 data
-    pub fn add_i32_tensor<N: Into<String>>(self, name: N, shape: Vec<u64>, data: Vec<i32>) -> Self {
-        // Convert i32 data to bytes
-        let mut bytes = Vec::with_capacity(data.len() * 4);
+    pub fn add_i32_tensor<N: Into<String>>(
+        self,
+        name: N,
+        shape: Vec<u64>,
+        data: Vec<i32>,
+    ) -> Result<Self> {
+        let byte_length = data.len().checked_mul(core::mem::size_of::<i32>()).ok_or_else(|| {
+            GGUFError::InvalidTensorData("I32 tensor byte length overflows usize".to_string())
+        })?;
+        let mut bytes = Vec::new();
+        bytes.try_reserve_exact(byte_length).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate I32 tensor byte buffer".to_string())
+        })?;
         for value in data {
             bytes.extend_from_slice(&value.to_le_bytes());
         }
 
-        // Use unwrap here since this is a convenience method and should panic if there's an error
-        self.add_tensor(name, shape, TensorType::I32, bytes).unwrap()
+        self.add_tensor(name, shape, TensorType::I32, bytes)
     }
 
     /// Add a quantized tensor with raw quantized data
@@ -369,9 +448,14 @@ impl GGUFBuilder {
         shape: Vec<u64>,
         tensor_type: TensorType,
         data: Vec<u8>,
-    ) -> Self {
-        // Use unwrap here since this is a convenience method and should panic if there's an error
-        self.add_tensor(name, shape, tensor_type, data).unwrap()
+    ) -> Result<Self> {
+        if !tensor_type.is_quantized() {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "add_quantized_tensor requires a quantized tensor type, got {}",
+                tensor_type
+            )));
+        }
+        self.add_tensor(name, shape, tensor_type, data)
     }
 }
 
@@ -382,12 +466,27 @@ impl std::fmt::Display for GGUFBuilderSummary {
         writeln!(f, "  Metadata entries: {}", self.metadata_count)?;
         writeln!(f, "  Total tensor size: {} bytes", self.total_tensor_size)?;
         writeln!(f, "  Tensor types:")?;
-        for (tensor_type, count) in &self.tensor_types {
+        let mut tensor_types: Vec<_> = self.tensor_types.iter().collect();
+        tensor_types.sort_unstable_by(|(left, _), (right, _)| {
+            (**left as u32)
+                .cmp(&(**right as u32))
+                .then_with(|| left.name().cmp(right.name()))
+        });
+        for (tensor_type, count) in tensor_types {
             writeln!(f, "    {}: {}", tensor_type.name(), count)?;
         }
         writeln!(f, "  Tensor names: {:?}", self.tensor_names)?;
         Ok(())
     }
+}
+
+fn try_clone_tensor_name(name: &str) -> Result<String> {
+    let mut owned = String::new();
+    owned
+        .try_reserve_exact(name.len())
+        .map_err(|_| GGUFError::InvalidTensorData("Unable to allocate tensor name".to_string()))?;
+    owned.push_str(name);
+    Ok(owned)
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -436,25 +535,45 @@ mod tests {
     fn test_builder_validation() {
         let mut builder = GGUFBuilder::new();
 
-        // Add duplicate tensor names
         let data = vec![0u8; 4];
-        builder = builder.add_tensor("dup", vec![1], TensorType::F32, data.clone()).unwrap();
-        builder = builder.add_tensor("dup", vec![1], TensorType::F32, data).unwrap();
+        builder
+            .try_push_tensor(
+                "dup".to_string(),
+                vec![1],
+                TensorType::F32,
+                TensorData::new_owned(data.clone()),
+            )
+            .unwrap();
+        let duplicate = builder.try_push_tensor(
+            "dup".to_string(),
+            vec![1],
+            TensorType::F32,
+            TensorData::new_owned(data),
+        );
 
-        let result = builder.validate();
-        assert!(result.is_err());
+        assert!(matches!(
+            duplicate,
+            Err(GGUFError::InvalidTensorData(message))
+                if message.contains("Duplicate tensor name")
+        ));
+        assert_eq!(builder.tensor_count(), 1);
+        assert_eq!(builder.tensor_name_index.len(), 1);
+        assert!(builder.validate().is_ok());
     }
 
     #[test]
     fn test_simple_builder() {
         let builder = GGUFBuilder::simple("test_model", "A test model");
-        assert!(builder.metadata_count() > 0);
+        assert_eq!(builder.metadata_count(), 2);
+        assert!(!builder.metadata.contains_key("general.file_type"));
     }
 
     #[test]
     fn test_language_model_builder() {
         let builder = GGUFBuilder::language_model("llama_test", 2048, 4096);
         assert!(builder.metadata_count() > 0);
+        assert_eq!(builder.metadata.get("llama.context_length"), Some(&MetadataValue::U32(2048)));
+        assert_eq!(builder.metadata.get("llama.embedding_length"), Some(&MetadataValue::U32(4096)));
 
         let summary = builder.summary();
         assert_eq!(summary.tensor_count, 0);
@@ -484,11 +603,20 @@ mod tests {
 
         let builder = builder.remove_tensor("tensor1");
         assert_eq!(builder.tensor_count(), 1);
+        assert_eq!(builder.tensor_name_index.len(), 1);
         assert!(!builder.has_tensor("tensor1"));
         assert!(builder.has_tensor("tensor2"));
 
+        let builder =
+            builder.add_tensor("tensor1", vec![2], TensorType::F32, vec![0u8; 8]).unwrap();
+        assert_eq!(builder.tensor_count(), 2);
+        assert_eq!(builder.tensor_name_index.len(), 2);
+
         let builder = builder.clear_tensors();
         assert_eq!(builder.tensor_count(), 0);
+        assert!(builder.tensor_name_index.is_empty());
+        assert!(!builder.has_tensor("tensor1"));
+        assert!(!builder.has_tensor("tensor2"));
     }
 
     #[test]
@@ -505,5 +633,44 @@ mod tests {
         assert!(display.contains("Tensors: 2"));
         assert!(display.contains("F32"));
         assert!(display.contains("F16"));
+        assert!(display.find("    F32:").unwrap() < display.find("    F16:").unwrap());
+    }
+
+    #[test]
+    fn test_convenience_methods_return_errors_without_panicking() {
+        assert!(GGUFBuilder::new()
+            .add_f32_tensor("rank_five", vec![1, 1, 1, 1, 1], vec![0.0])
+            .is_err());
+        assert!(GGUFBuilder::new().add_i32_tensor("wrong_size", vec![2], vec![1]).is_err());
+        assert!(GGUFBuilder::new()
+            .add_quantized_tensor("invalid_block", vec![31], TensorType::Q4_0, vec![0; 18],)
+            .is_err());
+        assert!(GGUFBuilder::new()
+            .add_quantized_tensor("not_quantized", vec![1], TensorType::F32, vec![0; 4],)
+            .is_err());
+    }
+
+    #[test]
+    fn test_quantized_tensors_declare_and_validate_quantization_version() {
+        let builder = GGUFBuilder::new()
+            .add_quantized_tensor("q4", vec![32], TensorType::Q4_0, vec![0; 18])
+            .unwrap();
+        assert_eq!(
+            builder.metadata.get("general.quantization_version"),
+            Some(&MetadataValue::U32(GGUF_QUANTIZATION_VERSION))
+        );
+        assert!(builder.validate().is_ok());
+
+        let invalid_version = builder.add_metadata(
+            "general.quantization_version",
+            MetadataValue::U32(GGUF_QUANTIZATION_VERSION + 1),
+        );
+        assert!(invalid_version.validate().is_err());
+    }
+
+    #[test]
+    fn test_vocabulary_uses_ggml_dimension_order() {
+        let builder = GGUFBuilder::new().add_vocabulary(3, 2, vec![0; 3 * 2 * 4]).unwrap();
+        assert_eq!(builder.tensors[0].0.shape().dims(), &[2, 3]);
     }
 }

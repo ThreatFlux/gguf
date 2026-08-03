@@ -1,8 +1,10 @@
 //! Tensor-specific reading utilities
 
 use crate::error::{GGUFError, Result};
-use crate::tensor::{TensorData, TensorInfo, TensorType};
+use crate::tensor::{TensorData, TensorInfo};
 use std::io::{Read, Seek, SeekFrom};
+
+const MAX_READ_CHUNK_SIZE: usize = 1024 * 1024;
 
 /// Specialized reader for tensor data with format-specific handling
 #[derive(Debug)]
@@ -16,15 +18,18 @@ pub struct TensorReader<R> {
 /// Options for tensor reading
 #[derive(Debug, Clone)]
 pub struct TensorReadOptions {
-    /// Whether to validate data alignment
+    /// Whether to validate the descriptor offset against GGUF's minimum 8-byte alignment
     pub validate_alignment: bool,
-    /// Whether to perform data integrity checks
-    pub validate_integrity: bool,
+    /// Whether to compute the crate's non-cryptographic payload checksum.
+    ///
+    /// GGUF carries no reference checksum to verify, so this records a value
+    /// for caller comparison; it does not establish integrity or authenticity.
+    pub compute_checksum: bool,
     /// Whether to decompress quantized data
     pub decompress_quantized: bool,
     /// Maximum tensor size to read (0 = no limit)
     pub max_tensor_size: usize,
-    /// Buffer size for reading
+    /// Preferred buffer size for reading; temporary chunks are capped at 1 MiB.
     pub buffer_size: usize,
 }
 
@@ -32,7 +37,7 @@ impl Default for TensorReadOptions {
     fn default() -> Self {
         Self {
             validate_alignment: true,
-            validate_integrity: false,   // Can be expensive
+            compute_checksum: false,
             decompress_quantized: false, // Keep raw quantized data by default
             max_tensor_size: 0,
             buffer_size: 1024 * 1024, // 1MB buffer
@@ -47,8 +52,6 @@ pub struct TensorReadResult {
     pub data: TensorData,
     /// Actual bytes read
     pub bytes_read: usize,
-    /// Whether the data was validated
-    pub was_validated: bool,
     /// Whether the data was decompressed
     pub was_decompressed: bool,
     /// Checksum of the data (if computed)
@@ -72,7 +75,13 @@ impl<R: Read> TensorReader<R> {
         tensor_info: &TensorInfo,
         options: &TensorReadOptions,
     ) -> Result<TensorReadResult> {
-        let expected_size = tensor_info.expected_data_size() as usize;
+        let expected_size =
+            usize::try_from(tensor_info.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' size does not fit this platform",
+                    tensor_info.name()
+                ))
+            })?;
 
         // Check size limits
         if options.max_tensor_size > 0 && expected_size > options.max_tensor_size {
@@ -84,39 +93,29 @@ impl<R: Read> TensorReader<R> {
             )));
         }
 
-        // Read the raw data
-        let mut data = vec![0u8; expected_size];
-        self.reader.read_exact(&mut data)?;
-        self.position += expected_size as u64;
-
-        let mut tensor_data = TensorData::new_owned(data);
-        let mut was_validated = false;
-        let mut was_decompressed = false;
-        let mut checksum = None;
-
-        // Validate alignment if requested
+        // Reject descriptor/configuration errors before consuming input or
+        // allocating a payload-sized buffer.
         if options.validate_alignment {
-            self.validate_tensor_alignment(tensor_info, &tensor_data)?;
+            self.validate_tensor_alignment(tensor_info)?;
         }
-
-        // Validate integrity if requested
-        if options.validate_integrity {
-            checksum = Some(tensor_data.checksum());
-            self.validate_tensor_integrity(tensor_info, &tensor_data)?;
-            was_validated = true;
-        }
-
-        // Decompress quantized data if requested
         if options.decompress_quantized && tensor_info.tensor_type().is_quantized() {
-            tensor_data = self.decompress_quantized_tensor(tensor_info, tensor_data)?;
-            was_decompressed = true;
+            return Err(GGUFError::FeatureUnavailable(format!(
+                "decompression for {} tensors",
+                tensor_info.tensor_type()
+            )));
         }
+
+        // Grow only after each bounded read so a truncated hostile input cannot force a
+        // descriptor-sized allocation before any tensor bytes have arrived.
+        let data = self.read_exact_owned_tracking(expected_size, options.buffer_size)?;
+
+        let tensor_data = TensorData::new_owned(data);
+        let checksum = options.compute_checksum.then(|| tensor_data.checksum());
 
         Ok(TensorReadResult {
             data: tensor_data,
             bytes_read: expected_size,
-            was_validated,
-            was_decompressed,
+            was_decompressed: false,
             checksum,
         })
     }
@@ -127,7 +126,10 @@ impl<R: Read> TensorReader<R> {
         tensor_infos: &[&TensorInfo],
         options: &TensorReadOptions,
     ) -> Result<Vec<TensorReadResult>> {
-        let mut results = Vec::with_capacity(tensor_infos.len());
+        let mut results = Vec::new();
+        results.try_reserve_exact(tensor_infos.len()).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor read results".to_string())
+        })?;
 
         for tensor_info in tensor_infos {
             let result = self.read_tensor_data_with_options(tensor_info, options)?;
@@ -144,18 +146,31 @@ impl<R: Read> TensorReader<R> {
         chunk_size: usize,
         mut callback: impl FnMut(&[u8]) -> Result<()>,
     ) -> Result<()> {
-        let total_size = tensor_info.expected_data_size() as usize;
+        let total_size =
+            usize::try_from(tensor_info.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' size does not fit this platform",
+                    tensor_info.name()
+                ))
+            })?;
+        if total_size > 0 && chunk_size == 0 {
+            return Err(GGUFError::InvalidTensorData(
+                "Tensor read chunk size must be greater than zero".to_string(),
+            ));
+        }
         let mut remaining = total_size;
-        let mut buffer = vec![0u8; chunk_size.min(remaining)];
+        let buffer_size = chunk_size.min(remaining).min(MAX_READ_CHUNK_SIZE);
+        let mut buffer = Vec::new();
+        buffer.try_reserve_exact(buffer_size).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor read chunk".to_string())
+        })?;
+        buffer.resize(buffer_size, 0);
 
         while remaining > 0 {
-            let to_read = chunk_size.min(remaining);
-            buffer.resize(to_read, 0);
+            let to_read = buffer.len().min(remaining);
+            self.read_exact_tracking(&mut buffer[..to_read])?;
 
-            self.reader.read_exact(&mut buffer)?;
-            self.position += to_read as u64;
-
-            callback(&buffer)?;
+            callback(&buffer[..to_read])?;
             remaining -= to_read;
         }
 
@@ -163,58 +178,20 @@ impl<R: Read> TensorReader<R> {
     }
 
     /// Validate tensor data alignment
-    fn validate_tensor_alignment(&self, tensor_info: &TensorInfo, data: &TensorData) -> Result<()> {
-        let required_alignment = tensor_info.tensor_type().element_size();
-
-        if !data.is_aligned_to(required_alignment) {
+    fn validate_tensor_alignment(&self, tensor_info: &TensorInfo) -> Result<()> {
+        // TensorReader does not have access to `general.alignment`; the full file and
+        // stream readers enforce that exact value. Every valid declared alignment is
+        // a multiple of eight, so this is the strongest deterministic check available.
+        const MIN_GGUF_ALIGNMENT: u64 = 8;
+        if !tensor_info.data_offset().is_multiple_of(MIN_GGUF_ALIGNMENT) {
             return Err(GGUFError::InvalidTensorData(format!(
-                "Tensor '{}' data not properly aligned to {} bytes",
+                "Tensor '{}' offset is not aligned to at least {} bytes",
                 tensor_info.name(),
-                required_alignment
+                MIN_GGUF_ALIGNMENT
             )));
         }
 
         Ok(())
-    }
-
-    /// Validate tensor data integrity
-    fn validate_tensor_integrity(&self, tensor_info: &TensorInfo, data: &TensorData) -> Result<()> {
-        let expected_size = tensor_info.expected_data_size() as usize;
-        if data.len() != expected_size {
-            return Err(GGUFError::InvalidTensorData(format!(
-                "Tensor '{}' size mismatch: expected {} bytes, got {}",
-                tensor_info.name(),
-                expected_size,
-                data.len()
-            )));
-        }
-
-        Ok(())
-    }
-
-    /// Decompress quantized tensor data (placeholder implementation)
-    fn decompress_quantized_tensor(
-        &self,
-        tensor_info: &TensorInfo,
-        data: TensorData,
-    ) -> Result<TensorData> {
-        // This is a placeholder - actual quantization decompression would require
-        // implementing the specific algorithms for each quantization type
-
-        match tensor_info.tensor_type() {
-            TensorType::Q4_0 | TensorType::Q4_1 => {
-                // Would implement Q4 decompression to F32
-                Ok(data) // For now, return unchanged
-            }
-            TensorType::Q8_0 | TensorType::Q8_1 => {
-                // Would implement Q8 decompression to F32
-                Ok(data) // For now, return unchanged
-            }
-            _ => {
-                // For other types or non-quantized, return unchanged
-                Ok(data)
-            }
-        }
     }
 
     /// Get current position
@@ -229,16 +206,70 @@ impl<R: Read> TensorReader<R> {
 
     /// Skip bytes in the stream
     pub fn skip_bytes(&mut self, count: usize) -> Result<()> {
-        let mut buffer = vec![0u8; (count).min(8192)]; // Use reasonable buffer size
+        let mut buffer = [0u8; 8192];
         let mut remaining = count;
 
         while remaining > 0 {
             let to_skip = remaining.min(buffer.len());
-            self.reader.read_exact(&mut buffer[..to_skip])?;
+            self.read_exact_tracking(&mut buffer[..to_skip])?;
             remaining -= to_skip;
-            self.position += to_skip as u64;
         }
 
+        Ok(())
+    }
+
+    fn read_exact_owned_tracking(&mut self, size: usize, buffer_size: usize) -> Result<Vec<u8>> {
+        if size == 0 {
+            return Ok(Vec::new());
+        }
+        if buffer_size == 0 {
+            return Err(GGUFError::InvalidTensorData(
+                "Tensor read buffer size must be greater than zero".to_string(),
+            ));
+        }
+
+        let chunk_size = buffer_size.min(size).min(MAX_READ_CHUNK_SIZE);
+        let mut chunk = Vec::new();
+        chunk.try_reserve_exact(chunk_size).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor read chunk".to_string())
+        })?;
+        chunk.resize(chunk_size, 0);
+        let mut data = Vec::new();
+        let mut remaining = size;
+        while remaining > 0 {
+            let to_read = remaining.min(chunk.len());
+            self.read_exact_tracking(&mut chunk[..to_read])?;
+            data.try_reserve(to_read).map_err(|_| {
+                GGUFError::InvalidTensorData("Unable to allocate tensor data buffer".to_string())
+            })?;
+            data.extend_from_slice(&chunk[..to_read]);
+            remaining -= to_read;
+        }
+        Ok(data)
+    }
+
+    fn read_exact_tracking(&mut self, mut buffer: &mut [u8]) -> Result<()> {
+        while !buffer.is_empty() {
+            match self.reader.read(buffer) {
+                Ok(0) => return Err(GGUFError::UnexpectedEof),
+                Ok(bytes_read) => {
+                    self.advance(bytes_read)?;
+                    let (_, remaining) = buffer.split_at_mut(bytes_read);
+                    buffer = remaining;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
+    }
+
+    fn advance(&mut self, bytes: usize) -> Result<()> {
+        let bytes = u64::try_from(bytes)
+            .map_err(|_| GGUFError::InvalidTensorData("Read size does not fit u64".to_string()))?;
+        self.position = self.position.checked_add(bytes).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor reader position overflows u64".to_string())
+        })?;
         Ok(())
     }
 }
@@ -273,7 +304,10 @@ impl<R: Read + Seek> TensorReader<R> {
         tensors: &[(u64, &TensorInfo)], // (offset, tensor_info) pairs
         options: &TensorReadOptions,
     ) -> Result<Vec<TensorReadResult>> {
-        let mut results = Vec::with_capacity(tensors.len());
+        let mut results = Vec::new();
+        results.try_reserve_exact(tensors.len()).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor read results".to_string())
+        })?;
 
         for &(offset, tensor_info) in tensors {
             let result = self.read_tensor_at_offset(tensor_info, offset, options)?;
@@ -290,7 +324,11 @@ pub struct TensorReadUtils;
 impl TensorReadUtils {
     /// Calculate optimal buffer size for reading a tensor
     pub fn optimal_buffer_size(tensor_info: &TensorInfo) -> usize {
-        let tensor_size = tensor_info.expected_data_size() as usize;
+        let tensor_size = tensor_info
+            .checked_expected_data_size()
+            .ok()
+            .and_then(|size| usize::try_from(size).ok())
+            .unwrap_or(usize::MAX);
 
         // Use powers of 2 for better memory alignment
         let base_size = match tensor_size {
@@ -305,7 +343,11 @@ impl TensorReadUtils {
 
     /// Check if a tensor should be read in chunks
     pub fn should_read_chunked(tensor_info: &TensorInfo, chunk_threshold: usize) -> bool {
-        tensor_info.expected_data_size() as usize > chunk_threshold
+        tensor_info
+            .checked_expected_data_size()
+            .ok()
+            .and_then(|size| usize::try_from(size).ok())
+            .is_none_or(|size| size > chunk_threshold)
     }
 
     /// Calculate memory requirements for reading tensors
@@ -317,7 +359,7 @@ impl TensorReadUtils {
 
         for tensor_info in tensor_infos {
             let size = tensor_info.expected_data_size();
-            total_size += size;
+            total_size = total_size.saturating_add(size);
             max_tensor_size = max_tensor_size.max(size);
 
             if tensor_info.tensor_type().is_quantized() {
@@ -328,14 +370,15 @@ impl TensorReadUtils {
         }
 
         TensorMemoryRequirements {
-            total_size: total_size as usize,
-            max_tensor_size: max_tensor_size as usize,
+            total_size: usize::try_from(total_size).unwrap_or(usize::MAX),
+            max_tensor_size: usize::try_from(max_tensor_size).unwrap_or(usize::MAX),
             tensor_count: tensor_infos.len(),
             quantized_tensor_count: quantized_count,
             non_quantized_tensor_count: non_quantized_count,
-            recommended_buffer_size: Self::optimal_buffer_size(
-                tensor_infos.iter().max_by_key(|t| t.expected_data_size()).unwrap(),
-            ),
+            recommended_buffer_size: tensor_infos
+                .iter()
+                .max_by_key(|tensor| tensor.expected_data_size())
+                .map_or(0, |tensor| Self::optimal_buffer_size(tensor)),
         }
     }
 }
@@ -366,7 +409,7 @@ impl TensorMemoryRequirements {
     /// Check if memory requirements are reasonable
     pub fn is_reasonable(&self, available_memory: usize) -> bool {
         // Should use less than or equal to 80% of available memory
-        self.total_size <= (available_memory * 4 / 5)
+        self.total_size <= available_memory.saturating_mul(4) / 5
     }
 }
 
@@ -374,9 +417,8 @@ impl std::fmt::Display for TensorReadResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "TensorReadResult {{ bytes: {}, validated: {}, decompressed: {}{}}}",
+            "TensorReadResult {{ bytes: {}, decompressed: {}{}}}",
             self.bytes_read,
-            self.was_validated,
             self.was_decompressed,
             if let Some(checksum) = self.checksum {
                 format!(", checksum: 0x{:08x}", checksum)
@@ -405,7 +447,7 @@ impl std::fmt::Display for TensorMemoryRequirements {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
-    use crate::tensor::TensorShape;
+    use crate::tensor::{TensorShape, TensorType};
     use std::io::Cursor;
 
     fn create_test_tensor_info(name: &str, shape: Vec<u64>, tensor_type: TensorType) -> TensorInfo {
@@ -448,13 +490,12 @@ mod tests {
 
         let tensor_info = create_test_tensor_info("test", vec![2], TensorType::F32);
         let options = TensorReadOptions {
-            validate_integrity: true,
+            compute_checksum: true,
             validate_alignment: false, // Skip alignment check for test
             ..Default::default()
         };
 
         let result = reader.read_tensor_data_with_options(&tensor_info, &options).unwrap();
-        assert!(result.was_validated);
         assert!(result.checksum.is_some());
     }
 
@@ -497,6 +538,44 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].len(), 8);
         assert_eq!(chunks[1].len(), 8);
+    }
+
+    #[test]
+    fn test_zero_sized_read_buffers_are_rejected() {
+        let tensor_info = create_test_tensor_info("test", vec![1], TensorType::F32);
+        let mut reader = TensorReader::new(Cursor::new(vec![0u8; 4]));
+        let options =
+            TensorReadOptions { validate_alignment: false, buffer_size: 0, ..Default::default() };
+        assert!(reader.read_tensor_data_with_options(&tensor_info, &options).is_err());
+
+        let mut reader = TensorReader::new(Cursor::new(vec![0u8; 4]));
+        assert!(reader.read_tensor_chunked(&tensor_info, 0, |_| Ok(())).is_err());
+    }
+
+    #[test]
+    fn test_unimplemented_decompression_is_reported() {
+        let tensor_info = create_test_tensor_info("test", vec![32], TensorType::Q4_0);
+        let mut reader = TensorReader::new(Cursor::new(vec![0u8; 18]));
+        let options = TensorReadOptions {
+            validate_alignment: false,
+            decompress_quantized: true,
+            ..Default::default()
+        };
+        assert!(matches!(
+            reader.read_tensor_data_with_options(&tensor_info, &options),
+            Err(GGUFError::FeatureUnavailable(_))
+        ));
+        assert_eq!(reader.position(), 0);
+    }
+
+    #[test]
+    fn invalid_alignment_is_rejected_before_reading() {
+        let mut tensor_info = create_test_tensor_info("test", vec![1], TensorType::F32);
+        tensor_info.data_offset = 1;
+        let mut reader = TensorReader::new(Cursor::new(vec![0u8; 4]));
+
+        assert!(reader.read_tensor_data(&tensor_info).is_err());
+        assert_eq!(reader.position(), 0);
     }
 
     #[test]
@@ -573,14 +652,12 @@ mod tests {
         let result = TensorReadResult {
             data: TensorData::new_owned(vec![1, 2, 3, 4]),
             bytes_read: 4,
-            was_validated: true,
             was_decompressed: false,
             checksum: Some(0x12345678),
         };
 
         let display_str = format!("{}", result);
         assert!(display_str.contains("4"));
-        assert!(display_str.contains("validated: true"));
         assert!(display_str.contains("0x12345678"));
 
         let req = TensorMemoryRequirements {

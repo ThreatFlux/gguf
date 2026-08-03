@@ -66,7 +66,7 @@ fn test_special_characters_in_names() {
     builder = builder
         .add_metadata("simple_name", MetadataValue::String("value".to_string()))
         .add_metadata("name.with.dots", MetadataValue::U32(1))
-        .add_metadata("name-with-dashes", MetadataValue::U32(2))
+        .add_metadata("name.with.dashes", MetadataValue::U32(2))
         .add_metadata("name_with_underscores", MetadataValue::U32(3));
 
     // Add tensors with various name patterns

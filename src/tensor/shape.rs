@@ -1,6 +1,7 @@
 //! Tensor shape and dimension handling
 
 use crate::error::{GGUFError, Result};
+use crate::format::constants::GGUF_MAX_DIMENSIONS;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 
@@ -33,6 +34,13 @@ impl TensorShape {
             return Err(GGUFError::InvalidTensorData("Tensor shape cannot be empty".to_string()));
         }
 
+        if dimensions.len() > GGUF_MAX_DIMENSIONS {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Tensor shape cannot have more than {} dimensions",
+                GGUF_MAX_DIMENSIONS
+            )));
+        }
+
         // Allow zero dimensions for empty tensors - they represent tensors with 0 elements
         // This is mathematically valid and commonly used in practice
 
@@ -40,6 +48,17 @@ impl TensorShape {
         const MAX_REASONABLE_DIM: u64 = 1_000_000_000; // 1B elements per dimension
         if dimensions.iter().any(|&d| d > MAX_REASONABLE_DIM) {
             return Err(GGUFError::InvalidTensorData("Tensor dimension too large".to_string()));
+        }
+
+        if !dimensions.contains(&0)
+            && dimensions
+                .iter()
+                .try_fold(1u64, |count, &dimension| count.checked_mul(dimension))
+                .is_none()
+        {
+            return Err(GGUFError::InvalidTensorData(
+                "Tensor element count overflows u64".to_string(),
+            ));
         }
 
         Ok(Self { dimensions })
@@ -60,9 +79,12 @@ impl TensorShape {
         Self::new(vec![size])
     }
 
-    /// Create a matrix tensor (2D)
+    /// Create a logical `rows × cols` matrix in GGML descriptor order.
+    ///
+    /// GGML dimension 0 is contiguous, so the stored dimensions are
+    /// `[cols, rows]`.
     pub fn matrix(rows: u64, cols: u64) -> Result<Self> {
-        Self::new(vec![rows, cols])
+        Self::new(vec![cols, rows])
     }
 
     /// Create a 3D tensor
@@ -97,10 +119,17 @@ impl TensorShape {
 
     /// Calculate the total number of elements
     pub fn element_count(&self) -> u64 {
+        self.checked_element_count().unwrap_or(u64::MAX)
+    }
+
+    /// Calculate the total number of elements without overflowing.
+    pub fn checked_element_count(&self) -> Option<u64> {
+        if self.dimensions.contains(&0) {
+            return Some(0);
+        }
         self.dimensions
             .iter()
-            .try_fold(1u64, |acc, &dim| acc.checked_mul(dim).ok_or(()))
-            .unwrap_or(u64::MAX)
+            .try_fold(1u64, |count, &dimension| count.checked_mul(dimension))
     }
 
     /// Check if this is a scalar (single element)
@@ -135,13 +164,22 @@ impl TensorShape {
         true
     }
 
-    /// Calculate strides for C-style (row-major) ordering
+    /// Calculate contiguous strides in GGML dimension order.
+    ///
+    /// GGUF stores dimensions in GGML order: dimension 0 is the contiguous
+    /// dimension. These are logical element strides, so a shape `[2, 3, 4]`
+    /// has strides `[1, 2, 6]`. This is the reverse of the stride vector a
+    /// conventional host-side row-major array API would report for the same
+    /// dimension slice.
+    ///
+    /// For byte strides, including quantized block geometry, use
+    /// [`TensorInfo::calculate_layout`](crate::tensor::TensorInfo::calculate_layout).
     pub fn calculate_strides(&self) -> Vec<u64> {
         let mut strides = vec![1u64; self.ndim()];
 
         if self.ndim() > 1 {
-            for i in (0..self.ndim() - 1).rev() {
-                strides[i] = strides[i + 1] * self.dimensions[i + 1];
+            for i in 1..self.ndim() {
+                strides[i] = strides[i - 1].saturating_mul(self.dimensions[i - 1]);
             }
         }
 
@@ -155,7 +193,8 @@ impl TensorShape {
         }
 
         let strides = self.calculate_strides();
-        strides[0] * self.dimensions[0]
+        let last = self.ndim() - 1;
+        strides[last].saturating_mul(self.dimensions[last])
     }
 
     /// Reshape the tensor to a new shape with the same number of elements
@@ -192,18 +231,24 @@ impl TensorShape {
         Ok(TensorShape::new_unchecked(new_dims))
     }
 
-    /// Add a dimension at the beginning (unsqueeze at dim 0)
-    pub fn unsqueeze_front(&self) -> TensorShape {
+    /// Add a dimension at the beginning (unsqueeze at dim 0).
+    ///
+    /// Returns an error when the result would exceed GGUF's four-dimensional
+    /// tensor limit.
+    pub fn unsqueeze_front(&self) -> Result<TensorShape> {
         let mut new_dims = vec![1];
         new_dims.extend_from_slice(&self.dimensions);
-        TensorShape::new_unchecked(new_dims)
+        TensorShape::new(new_dims)
     }
 
-    /// Add a dimension at the end (unsqueeze at last dim)
-    pub fn unsqueeze_back(&self) -> TensorShape {
+    /// Add a dimension at the end (unsqueeze at last dim).
+    ///
+    /// Returns an error when the result would exceed GGUF's four-dimensional
+    /// tensor limit.
+    pub fn unsqueeze_back(&self) -> Result<TensorShape> {
         let mut new_dims = self.dimensions.clone();
         new_dims.push(1);
-        TensorShape::new_unchecked(new_dims)
+        TensorShape::new(new_dims)
     }
 
     /// Remove dimensions of size 1
@@ -218,14 +263,16 @@ impl TensorShape {
         }
     }
 
-    /// Check if two shapes are broadcastable
+    /// Check if two GGML-order shapes are broadcastable.
+    ///
+    /// Dimensions align from dimension 0, the reverse of conventional
+    /// host-order shape slices where broadcasting aligns from the right.
     pub fn is_broadcastable_with(&self, other: &TensorShape) -> bool {
         let max_ndim = self.ndim().max(other.ndim());
 
         for i in 0..max_ndim {
-            let dim_a = if i < self.ndim() { self.dimensions[self.ndim() - 1 - i] } else { 1 };
-
-            let dim_b = if i < other.ndim() { other.dimensions[other.ndim() - 1 - i] } else { 1 };
+            let dim_a = self.dimensions.get(i).copied().unwrap_or(1);
+            let dim_b = other.dimensions.get(i).copied().unwrap_or(1);
 
             if dim_a != dim_b && dim_a != 1 && dim_b != 1 {
                 return false;
@@ -248,18 +295,18 @@ impl TensorShape {
         let mut result_dims = Vec::with_capacity(max_ndim);
 
         for i in 0..max_ndim {
-            let dim_a = if i < self.ndim() { self.dimensions[self.ndim() - 1 - i] } else { 1 };
-
-            let dim_b = if i < other.ndim() { other.dimensions[other.ndim() - 1 - i] } else { 1 };
+            let dim_a = self.dimensions.get(i).copied().unwrap_or(1);
+            let dim_b = other.dimensions.get(i).copied().unwrap_or(1);
 
             result_dims.push(dim_a.max(dim_b));
         }
 
-        result_dims.reverse();
         Ok(TensorShape::new_unchecked(result_dims))
     }
 
-    /// Get the shape for matrix multiplication (if applicable)
+    /// Get the GGML-order result shape for matrix multiplication.
+    ///
+    /// With `self = [K, M]` and `other = [N, K]`, the result is `[N, M]`.
     pub fn matmul_output_shape(&self, other: &TensorShape) -> Result<TensorShape> {
         if !self.is_matrix() || !other.is_matrix() {
             return Err(GGUFError::InvalidTensorData(
@@ -267,14 +314,14 @@ impl TensorShape {
             ));
         }
 
-        if self.dimensions[1] != other.dimensions[0] {
+        if self.dimensions[0] != other.dimensions[1] {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Cannot multiply matrices with shapes {:?} and {:?}: dimension mismatch",
                 self.dimensions, other.dimensions
             )));
         }
 
-        TensorShape::matrix(self.dimensions[0], other.dimensions[1])
+        TensorShape::new(vec![other.dimensions[0], self.dimensions[1]])
     }
 
     /// Check if this shape is compatible for element-wise operations
@@ -296,23 +343,25 @@ impl TensorShape {
 
     /// Validate that the shape is reasonable for practical use
     pub fn validate_practical_limits(&self) -> Result<()> {
+        let element_count = self.checked_element_count().ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor element count overflows u64".to_string())
+        })?;
+
         // Check for reasonable total elements (prevent memory issues)
         const MAX_ELEMENTS: u64 = u32::MAX as u64; // ~4B elements max
-        if self.element_count() > MAX_ELEMENTS {
+        if element_count > MAX_ELEMENTS {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Tensor too large: {} elements exceeds practical limit of {}",
-                self.element_count(),
-                MAX_ELEMENTS
+                element_count, MAX_ELEMENTS
             )));
         }
 
         // Check for reasonable number of dimensions
-        const MAX_DIMENSIONS: usize = 8;
-        if self.ndim() > MAX_DIMENSIONS {
+        if self.ndim() > GGUF_MAX_DIMENSIONS {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Too many dimensions: {} exceeds practical limit of {}",
                 self.ndim(),
-                MAX_DIMENSIONS
+                GGUF_MAX_DIMENSIONS
             )));
         }
 
@@ -327,15 +376,19 @@ impl std::fmt::Display for TensorShape {
     }
 }
 
-impl From<Vec<u64>> for TensorShape {
-    fn from(dimensions: Vec<u64>) -> Self {
-        TensorShape::new(dimensions).expect("Invalid tensor shape")
+impl TryFrom<Vec<u64>> for TensorShape {
+    type Error = GGUFError;
+
+    fn try_from(dimensions: Vec<u64>) -> Result<Self> {
+        TensorShape::new(dimensions)
     }
 }
 
-impl From<&[u64]> for TensorShape {
-    fn from(dimensions: &[u64]) -> Self {
-        TensorShape::new(dimensions.to_vec()).expect("Invalid tensor shape")
+impl TryFrom<&[u64]> for TensorShape {
+    type Error = GGUFError;
+
+    fn try_from(dimensions: &[u64]) -> Result<Self> {
+        TensorShape::new(dimensions.to_vec())
     }
 }
 
@@ -418,6 +471,7 @@ mod tests {
         assert!(!vector.is_matrix());
 
         let matrix = TensorShape::matrix(3, 4).unwrap();
+        assert_eq!(matrix.dims(), &[4, 3]);
         assert!(matrix.is_matrix());
         assert!(!matrix.is_3d());
     }
@@ -426,7 +480,8 @@ mod tests {
     fn test_strides_calculation() {
         let shape = TensorShape::new(vec![2, 3, 4]).unwrap();
         let strides = shape.calculate_strides();
-        assert_eq!(strides, vec![12, 4, 1]); // C-style ordering
+        assert_eq!(strides, vec![1, 2, 6]); // GGML dimension 0 is contiguous
+        assert_eq!(shape.memory_size(), 24);
     }
 
     #[test]
@@ -446,7 +501,7 @@ mod tests {
     fn test_transpose() {
         let shape = TensorShape::matrix(3, 4).unwrap();
         let transposed = shape.transpose().unwrap();
-        assert_eq!(transposed.dims(), &[4, 3]);
+        assert_eq!(transposed.dims(), &[3, 4]);
 
         let vector = TensorShape::vector(5).unwrap();
         assert!(vector.transpose().is_err()); // Cannot transpose 1D
@@ -458,19 +513,23 @@ mod tests {
         let squeezed = shape.squeeze();
         assert_eq!(squeezed.dims(), &[3, 4]);
 
-        let unsqueezed = squeezed.unsqueeze_front();
+        let unsqueezed = squeezed.unsqueeze_front().unwrap();
         assert_eq!(unsqueezed.dims(), &[1, 3, 4]);
+
+        let rank_four = TensorShape::new(vec![2, 3, 4, 5]).unwrap();
+        assert!(rank_four.unsqueeze_front().is_err());
+        assert!(rank_four.unsqueeze_back().is_err());
     }
 
     #[test]
     fn test_broadcasting() {
-        let shape1 = TensorShape::new(vec![3, 1, 4]).unwrap();
-        let shape2 = TensorShape::new(vec![2, 4]).unwrap();
+        let shape1 = TensorShape::new(vec![4, 1, 3]).unwrap();
+        let shape2 = TensorShape::new(vec![4, 2]).unwrap();
 
         assert!(shape1.is_broadcastable_with(&shape2));
 
         let broadcasted = shape1.broadcast_with(&shape2).unwrap();
-        assert_eq!(broadcasted.dims(), &[3, 2, 4]);
+        assert_eq!(broadcasted.dims(), &[4, 2, 3]);
     }
 
     #[test]
@@ -479,7 +538,7 @@ mod tests {
         let shape2 = TensorShape::matrix(4, 5).unwrap();
 
         let result = shape1.matmul_output_shape(&shape2).unwrap();
-        assert_eq!(result.dims(), &[3, 5]);
+        assert_eq!(result.dims(), &[5, 3]);
 
         // Invalid matmul
         let shape3 = TensorShape::matrix(3, 7).unwrap();
@@ -530,13 +589,16 @@ mod tests {
     #[test]
     fn test_shape_conversions() {
         let vec_dims = vec![2, 3, 4];
-        let shape1: TensorShape = vec_dims.clone().into();
-        let shape2: TensorShape = vec_dims.as_slice().into();
+        let shape1 = TensorShape::try_from(vec_dims.clone()).unwrap();
+        let shape2 = TensorShape::try_from(vec_dims.as_slice()).unwrap();
 
         assert_eq!(shape1.dims(), &[2, 3, 4]);
         assert_eq!(shape2.dims(), &[2, 3, 4]);
 
         let as_ref: &[u64] = shape1.as_ref();
         assert_eq!(as_ref, &[2, 3, 4]);
+
+        assert!(TensorShape::try_from(Vec::<u64>::new()).is_err());
+        assert!(TensorShape::try_from(&[1, 2, 3, 4, 5][..]).is_err());
     }
 }

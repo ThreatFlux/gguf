@@ -28,11 +28,9 @@ pub fn create_minimal_gguf() -> Vec<u8> {
 /// Create a simple GGUF file with basic metadata and one tensor
 #[cfg(feature = "std")]
 pub fn create_simple_gguf() -> Vec<u8> {
-    let builder = GGUFBuilder::simple("test_model", "A simple test model").add_f32_tensor(
-        "weights",
-        vec![2, 2],
-        vec![1.0, 2.0, 3.0, 4.0],
-    );
+    let builder = GGUFBuilder::simple("test_model", "A simple test model")
+        .add_f32_tensor("weights", vec![2, 2], vec![1.0, 2.0, 3.0, 4.0])
+        .expect("valid F32 fixture");
 
     let (bytes, _) = builder.build_to_bytes().expect("Failed to build simple GGUF");
     bytes
@@ -79,19 +77,23 @@ pub fn create_multi_tensor_gguf() -> Vec<u8> {
 
     builder = builder
         .add_f32_tensor("f32_tensor", vec![3, 3], vec![1.0; 9])
+        .expect("valid F32 fixture")
         .add_i32_tensor("i32_tensor", vec![4], vec![10, 20, 30, 40])
+        .expect("valid I32 fixture")
         .add_quantized_tensor(
             "q4_tensor",
             vec![64], // 2 blocks of 32 elements each
             TensorType::Q4_0,
             vec![0u8; 36], // 2 * 18 bytes per block
         )
+        .expect("valid Q4_0 fixture")
         .add_quantized_tensor(
             "q8_tensor",
             vec![32], // 1 block of 32 elements
             TensorType::Q8_0,
             vec![0u8; 34], // 1 * 34 bytes per block
-        );
+        )
+        .expect("valid Q8_0 fixture");
 
     let (bytes, _) = builder.build_to_bytes().expect("Failed to build multi-tensor GGUF");
     bytes
@@ -109,11 +111,13 @@ pub fn create_large_gguf() -> Vec<u8> {
     let embedding_data: Vec<f32> =
         (0..(vocab_size * embed_dim)).map(|i| (i as f32) * 0.0001).collect();
 
-    builder = builder.add_f32_tensor(
-        "token_embd.weight",
-        vec![vocab_size as u64, embed_dim as u64],
-        embedding_data,
-    );
+    builder = builder
+        .add_f32_tensor(
+            "token_embd.weight",
+            vec![embed_dim as u64, vocab_size as u64],
+            embedding_data,
+        )
+        .expect("valid embedding tensor");
 
     // Add some layer weights
     for i in 0..4 {
@@ -121,11 +125,13 @@ pub fn create_large_gguf() -> Vec<u8> {
             .map(|j| ((i * 10000 + j) as f32) * 0.00001)
             .collect();
 
-        builder = builder.add_f32_tensor(
-            format!("layers.{}.attention.weight", i),
-            vec![embed_dim as u64, embed_dim as u64],
-            layer_weights,
-        );
+        builder = builder
+            .add_f32_tensor(
+                format!("layers.{}.attention.weight", i),
+                vec![embed_dim as u64, embed_dim as u64],
+                layer_weights,
+            )
+            .expect("valid attention tensor");
     }
 
     let (bytes, _) = builder.build_to_bytes().expect("Failed to build large GGUF");
@@ -141,17 +147,25 @@ pub fn create_edge_case_gguf() -> Vec<u8> {
     builder = builder
         // Empty tensors
         .add_f32_tensor("empty_1d", vec![0], vec![])
+        .expect("valid empty tensor")
         .add_f32_tensor("empty_2d", vec![0, 5], vec![])
+        .expect("valid empty tensor")
         .add_f32_tensor("empty_3d", vec![2, 0, 3], vec![])
+        .expect("valid empty tensor")
         // Single element tensors
         .add_f32_tensor("scalar", vec![1], vec![42.0])
+        .expect("valid scalar")
         .add_i32_tensor("single_int", vec![1], vec![100])
+        .expect("valid integer scalar")
         // High-dimensional tensors
-        .add_f32_tensor("high_dim", vec![2, 2, 2, 2, 2], vec![1.0; 32])
+        .add_f32_tensor("high_dim", vec![2, 2, 2, 2], vec![1.0; 16])
+        .expect("valid rank-four tensor")
         // Very wide tensor
         .add_f32_tensor("wide", vec![1000], (0..1000).map(|i| i as f32).collect())
+        .expect("valid wide tensor")
         // Very tall tensor
-        .add_f32_tensor("tall", vec![500, 1], vec![0.5; 500]);
+        .add_f32_tensor("tall", vec![500, 1], vec![0.5; 500])
+        .expect("valid tall tensor");
 
     let (bytes, _) = builder.build_to_bytes().expect("Failed to build edge case GGUF");
     bytes
@@ -235,11 +249,17 @@ pub fn create_alignment_test_gguf() -> Vec<u8> {
     // Add tensors of different sizes
     builder = builder
         .add_f32_tensor("tensor_1", vec![1], vec![1.0]) // 4 bytes
+        .expect("valid tensor")
         .add_f32_tensor("tensor_3", vec![3], vec![1.0, 2.0, 3.0]) // 12 bytes
+        .expect("valid tensor")
         .add_f32_tensor("tensor_7", vec![7], vec![1.0; 7]) // 28 bytes
+        .expect("valid tensor")
         .add_f32_tensor("tensor_13", vec![13], vec![1.0; 13]) // 52 bytes
+        .expect("valid tensor")
         .add_i32_tensor("int_tensor_5", vec![5], vec![1, 2, 3, 4, 5]) // 20 bytes
-        .add_i32_tensor("int_tensor_11", vec![11], (0..11).collect()); // 44 bytes
+        .expect("valid tensor")
+        .add_i32_tensor("int_tensor_11", vec![11], (0..11).collect()) // 44 bytes
+        .expect("valid tensor");
 
     let (bytes, _) = builder.build_to_bytes().expect("Failed to build alignment test GGUF");
     bytes
@@ -288,7 +308,7 @@ mod tests {
         let reader = GGUFFileReader::new(cursor).expect("Failed to read simple GGUF");
 
         assert_eq!(reader.tensor_count(), 1);
-        assert_eq!(reader.metadata().len(), 3); // name + description + file_type
+        assert_eq!(reader.metadata().len(), 2); // name + description
         assert_eq!(reader.metadata().get_string("general.name"), Some("test_model"));
     }
 

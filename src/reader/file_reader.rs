@@ -44,7 +44,10 @@ use crate::error::{GGUFError, Result};
 #[cfg(feature = "std")]
 use crate::format::types::GGUFTensorType as TensorType;
 #[cfg(feature = "std")]
-use crate::format::{alignment::align_to_default, GGUFHeader, Metadata, TensorInfo};
+use crate::format::{
+    constants::{GGUF_MAX_METADATA_DECODED_SIZE, GGUF_MAX_METADATA_SIZE},
+    GGUFHeader, Metadata, TensorInfo,
+};
 #[cfg(feature = "std")]
 use crate::tensor::{TensorData, TensorInfo as TensorInfoNew, TensorShape};
 #[cfg(feature = "std")]
@@ -55,6 +58,9 @@ use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 #[cfg(feature = "std")]
 use std::path::Path;
+
+const MIN_TENSOR_TRACKING_CAPACITY: usize = 64;
+const MAX_READER_CHUNK_SIZE: usize = 1024 * 1024;
 
 /// A reader for GGUF files
 #[derive(Debug)]
@@ -67,24 +73,41 @@ pub struct GGUFFileReader<R> {
     metadata: Metadata,
     /// Tensor information
     tensor_infos: Vec<TensorInfoNew>,
+    /// Tensor descriptor index by name
+    tensor_name_index: HashMap<String, usize>,
     /// Current position in the file
     position: u64,
     /// Start of tensor data section
     tensor_data_offset: u64,
+    /// Alignment required for every tensor offset
+    tensor_alignment: u64,
+    /// Total input length captured at construction time
+    file_size: u64,
+    /// Maximum temporary buffer used while growing owned tensor data
+    buffer_size: usize,
 }
 
 /// Configuration for GGUF file reading
 #[derive(Debug, Clone)]
 pub struct GGUFReaderConfig {
-    /// Whether to validate data integrity
+    /// Whether to validate descriptor consistency and payload ranges.
+    ///
+    /// This does not read payload bytes or verify a cryptographic checksum.
     pub validate_integrity: bool,
     /// Whether to load tensor data immediately
     pub eager_load_tensors: bool,
     /// Maximum file size to read (0 = no limit)
     pub max_file_size: u64,
-    /// Buffer size for reading
+    /// Maximum number of serialized metadata bytes to read.
+    pub max_metadata_size: usize,
+    /// Maximum decoded allocation budget for metadata.
+    pub max_decoded_metadata_size: usize,
+    /// Preferred buffer size for reading; temporary chunks are capped at 1 MiB.
     pub buffer_size: usize,
-    /// Whether to use memory mapping when available
+    /// Request automatic memory mapping.
+    ///
+    /// Automatic mapping is not supported by the generic reader; setting this to
+    /// `true` returns [`GGUFError::FeatureUnavailable`].
     pub use_mmap: bool,
 }
 
@@ -94,6 +117,8 @@ impl Default for GGUFReaderConfig {
             validate_integrity: true,
             eager_load_tensors: false,
             max_file_size: 0,
+            max_metadata_size: GGUF_MAX_METADATA_SIZE,
+            max_decoded_metadata_size: GGUF_MAX_METADATA_DECODED_SIZE,
             buffer_size: 64 * 1024, // 64KB buffer
             use_mmap: false,
         }
@@ -108,29 +133,42 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
     /// Create a new GGUF file reader with custom configuration
     pub fn with_config(mut reader: R, config: GGUFReaderConfig) -> Result<Self> {
+        if config.use_mmap {
+            return Err(GGUFError::FeatureUnavailable(
+                "automatic memory mapping in GGUFFileReader".to_string(),
+            ));
+        }
         // Read and validate header
         let header = GGUFHeader::read_from(&mut reader)?;
         header.validate_comprehensive()?;
 
-        // Check file size limits
-        if config.max_file_size > 0 {
-            let current_pos = reader.stream_position()?;
-            let file_size = reader.seek(SeekFrom::End(0))?;
-            reader.seek(SeekFrom::Start(current_pos))?;
-
-            if file_size > config.max_file_size {
-                return Err(GGUFError::Format(format!(
-                    "File size {} exceeds maximum allowed size {}",
-                    file_size, config.max_file_size
-                )));
-            }
+        // Capture the file size once so descriptor ranges can be validated before allocation.
+        let current_pos = reader.stream_position()?;
+        let file_size = reader.seek(SeekFrom::End(0))?;
+        reader.seek(SeekFrom::Start(current_pos))?;
+        if config.max_file_size > 0 && file_size > config.max_file_size {
+            return Err(GGUFError::Format(format!(
+                "File size {} exceeds maximum allowed size {}",
+                file_size, config.max_file_size
+            )));
         }
 
         // Read metadata
-        let metadata = Metadata::read_from(&mut reader, header.metadata_kv_count)?;
+        let metadata = Metadata::read_from_with_limits(
+            &mut reader,
+            header.metadata_kv_count,
+            config.max_metadata_size,
+            config.max_decoded_metadata_size,
+        )?;
+        let tensor_alignment = u64::try_from(metadata.tensor_alignment()?).map_err(|_| {
+            GGUFError::InvalidMetadata("Tensor alignment does not fit u64".to_string())
+        })?;
 
         // Read tensor information
-        let mut tensor_infos = Vec::with_capacity(header.tensor_count as usize);
+        let tensor_capacity = usize::try_from(header.tensor_count).map_err(|_| {
+            GGUFError::InvalidTensorData("Tensor count does not fit this platform".to_string())
+        })?;
+        let mut tensor_infos = Vec::new();
         for _ in 0..header.tensor_count {
             let tensor_info = TensorInfo::read_from(&mut reader)?;
 
@@ -140,31 +178,60 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
             let new_tensor_info =
                 TensorInfoNew::new(tensor_info.name, shape, tensor_type, tensor_info.offset);
-
+            new_tensor_info.validate()?;
+            if !new_tensor_info.data_offset().is_multiple_of(tensor_alignment) {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' offset {} is not aligned to {} bytes",
+                    new_tensor_info.name(),
+                    new_tensor_info.data_offset(),
+                    tensor_alignment
+                )));
+            }
+            try_reserve_vec_slot(&mut tensor_infos, tensor_capacity, "tensor descriptor list")?;
             tensor_infos.push(new_tensor_info);
+        }
+
+        let mut tensor_name_index = HashMap::new();
+        for (index, tensor_info) in tensor_infos.iter().enumerate() {
+            try_reserve_map_slot(&mut tensor_name_index, tensor_infos.len(), "tensor name index")?;
+            let name = try_clone_tensor_name(tensor_info.name())?;
+            if tensor_name_index.insert(name, index).is_some() {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "Duplicate tensor name: {}",
+                    tensor_info.name()
+                )));
+            }
         }
 
         // Calculate tensor data section offset
         let current_position = reader.stream_position()?;
-        let tensor_data_offset = align_to_default(current_position as usize) as u64;
+        let tensor_data_offset = checked_align_u64(current_position, tensor_alignment)?;
+        if header.tensor_count > 0 && tensor_data_offset > file_size {
+            return Err(GGUFError::UnexpectedEof);
+        }
 
         let mut gguf_reader = Self {
             reader,
             header,
             metadata,
             tensor_infos,
+            tensor_name_index,
             position: current_position,
             tensor_data_offset,
+            tensor_alignment,
+            file_size,
+            buffer_size: config.buffer_size,
         };
+
+        // Validate descriptors before eager payload allocation so malformed
+        // ranges and overlaps fail without reading tensor data.
+        if config.validate_integrity {
+            gguf_reader.validate_integrity()?;
+        }
 
         // Eager load tensor data if requested
         if config.eager_load_tensors {
             gguf_reader.load_all_tensor_data()?;
-        }
-
-        // Validate integrity if requested
-        if config.validate_integrity {
-            gguf_reader.validate_integrity()?;
         }
 
         Ok(gguf_reader)
@@ -187,7 +254,7 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
     /// Get a specific tensor info by name
     pub fn get_tensor_info(&self, name: &str) -> Option<&TensorInfoNew> {
-        self.tensor_infos.iter().find(|t| t.name() == name)
+        self.tensor_name_index.get(name).and_then(|&index| self.tensor_infos.get(index))
     }
 
     /// Get all tensor names
@@ -202,57 +269,238 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
     /// Load tensor data by name
     pub fn load_tensor_data(&mut self, name: &str) -> Result<Option<TensorData>> {
-        // Find the tensor
         let tensor_index =
-            self.tensor_infos.iter().position(|t| t.name() == name).ok_or_else(|| {
+            self.tensor_name_index.get(name).copied().ok_or_else(|| {
                 GGUFError::InvalidTensorData(format!("Tensor '{}' not found", name))
             })?;
 
-        let tensor_info = &self.tensor_infos[tensor_index];
-        let data_size = tensor_info.expected_data_size() as usize;
-
-        // Seek to tensor data
-        let absolute_offset = self.tensor_data_offset + tensor_info.data_offset();
-        self.reader.seek(SeekFrom::Start(absolute_offset))?;
-
-        // Read tensor data
-        let mut data = vec![0u8; data_size];
-        self.reader.read_exact(&mut data)?;
-
-        let tensor_data = TensorData::new_owned(data);
-
-        // Store in tensor info (we need mutable access)
-        // For now, return the data and let caller handle storage
-        Ok(Some(tensor_data))
+        self.load_tensor_data_by_index(tensor_index).map(Some)
     }
 
-    /// Load all tensor data
-    pub fn load_all_tensor_data(&mut self) -> Result<()> {
-        let tensor_names: Vec<String> =
-            self.tensor_names().iter().map(|&s| s.to_string()).collect();
+    fn load_tensor_data_by_index(&mut self, tensor_index: usize) -> Result<TensorData> {
+        let tensor_info = self.tensor_infos.get(tensor_index).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor descriptor index is out of bounds".to_string())
+        })?;
+        let data_size_u64 = tensor_info.checked_expected_data_size()?;
+        let data_size = usize::try_from(data_size_u64).map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' size does not fit this platform",
+                tensor_info.name()
+            ))
+        })?;
 
-        for name in tensor_names {
-            let data = self.load_tensor_data(&name)?;
-            if let Some(tensor_data) = data {
-                // Find the tensor again and set its data
-                if let Some(tensor_info) = self.tensor_infos.iter_mut().find(|t| t.name() == name) {
-                    tensor_info.set_data(tensor_data);
+        // Seek to tensor data
+        let absolute_offset =
+            self.tensor_data_offset.checked_add(tensor_info.data_offset()).ok_or_else(|| {
+                GGUFError::InvalidTensorData("Tensor offset overflows u64".to_string())
+            })?;
+        let absolute_end = absolute_offset.checked_add(data_size_u64).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor range overflows u64".to_string())
+        })?;
+        if absolute_end > self.file_size {
+            return Err(GGUFError::UnexpectedEof);
+        }
+        self.reader.seek(SeekFrom::Start(absolute_offset))?;
+
+        let data = match read_exact_owned(&mut self.reader, data_size, self.buffer_size) {
+            Ok(data) => data,
+            Err(error) => {
+                if let Ok(position) = self.reader.stream_position() {
+                    self.position = position;
                 }
+                return Err(error);
             }
+        };
+        self.position = absolute_end;
+
+        Ok(TensorData::new_owned(data))
+    }
+
+    /// Load and retain every tensor payload.
+    ///
+    /// This can require memory comparable to the complete model. Use
+    /// [`Self::validate_all_tensor_data`] to check readability with bounded
+    /// temporary memory instead.
+    pub fn load_all_tensor_data(&mut self) -> Result<()> {
+        for tensor_index in 0..self.tensor_infos.len() {
+            let tensor_data = self.load_tensor_data_by_index(tensor_index)?;
+            self.tensor_infos[tensor_index].set_data(tensor_data);
         }
 
         Ok(())
     }
 
+    /// Read and discard every declared tensor payload.
+    ///
+    /// This verifies that every descriptor range is readable without retaining
+    /// tensor data. A single bounded, fallibly allocated buffer is reused for
+    /// the whole file.
+    pub fn validate_all_tensor_data(&mut self) -> Result<()> {
+        if self.tensor_infos.is_empty() {
+            return Ok(());
+        }
+        let max_payload_size = self.tensor_infos.iter().try_fold(0usize, |maximum, tensor| {
+            let size = usize::try_from(tensor.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' size does not fit this platform",
+                    tensor.name()
+                ))
+            })?;
+            Ok::<_, GGUFError>(maximum.max(size))
+        })?;
+        if max_payload_size > 0 && self.buffer_size == 0 {
+            return Err(GGUFError::InvalidTensorData(
+                "File reader buffer size must be greater than zero".to_string(),
+            ));
+        }
+        let chunk_size = self.buffer_size.min(MAX_READER_CHUNK_SIZE).min(max_payload_size);
+        let mut buffer = try_zeroed_buffer(chunk_size, "tensor validation chunk")?;
+
+        for tensor_index in 0..self.tensor_infos.len() {
+            let (absolute_offset, data_size) = self.tensor_range_by_index(tensor_index)?;
+            self.reader.seek(SeekFrom::Start(absolute_offset))?;
+            self.position = absolute_offset;
+            let mut remaining = data_size;
+            while remaining > 0 {
+                let to_read = remaining.min(buffer.len());
+                self.read_exact_tracking(&mut buffer[..to_read])?;
+                remaining -= to_read;
+            }
+        }
+        Ok(())
+    }
+
+    /// Compare a named tensor payload with another seekable GGUF reader.
+    ///
+    /// Comparison uses two bounded buffers and does not retain either payload.
+    pub fn tensor_data_equals<S: Read + Seek>(
+        &mut self,
+        name: &str,
+        other: &mut GGUFFileReader<S>,
+    ) -> Result<bool> {
+        let tensor_index =
+            self.tensor_name_index.get(name).copied().ok_or_else(|| {
+                GGUFError::InvalidTensorData(format!("Tensor '{}' not found", name))
+            })?;
+        let other_index =
+            other.tensor_name_index.get(name).copied().ok_or_else(|| {
+                GGUFError::InvalidTensorData(format!("Tensor '{}' not found", name))
+            })?;
+        let (absolute_offset, data_size) = self.tensor_range_by_index(tensor_index)?;
+        let (other_offset, other_size) = other.tensor_range_by_index(other_index)?;
+        if data_size != other_size {
+            return Ok(false);
+        }
+        if data_size == 0 {
+            return Ok(true);
+        }
+        if self.buffer_size == 0 || other.buffer_size == 0 {
+            return Err(GGUFError::InvalidTensorData(
+                "File reader buffer size must be greater than zero".to_string(),
+            ));
+        }
+        let chunk_size = self
+            .buffer_size
+            .min(other.buffer_size)
+            .min(MAX_READER_CHUNK_SIZE)
+            .min(data_size);
+        let mut left = try_zeroed_buffer(chunk_size, "tensor comparison chunk")?;
+        let mut right = try_zeroed_buffer(chunk_size, "tensor comparison chunk")?;
+        self.reader.seek(SeekFrom::Start(absolute_offset))?;
+        self.position = absolute_offset;
+        other.reader.seek(SeekFrom::Start(other_offset))?;
+        other.position = other_offset;
+
+        let mut remaining = data_size;
+        while remaining > 0 {
+            let to_read = remaining.min(chunk_size);
+            self.read_exact_tracking(&mut left[..to_read])?;
+            other.read_exact_tracking(&mut right[..to_read])?;
+            if left[..to_read] != right[..to_read] {
+                return Ok(false);
+            }
+            remaining -= to_read;
+        }
+        Ok(true)
+    }
+
     /// Read tensor data at a specific offset and size
     pub fn read_tensor_data_at(&mut self, offset: u64, size: usize) -> Result<TensorData> {
-        let absolute_offset = self.tensor_data_offset + offset;
+        let absolute_offset = self.tensor_data_offset.checked_add(offset).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor offset overflows u64".to_string())
+        })?;
+        let size_u64 = u64::try_from(size).map_err(|_| {
+            GGUFError::InvalidTensorData("Tensor size does not fit u64".to_string())
+        })?;
+        let absolute_end = absolute_offset.checked_add(size_u64).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor range overflows u64".to_string())
+        })?;
+        if absolute_end > self.file_size {
+            return Err(GGUFError::UnexpectedEof);
+        }
         self.reader.seek(SeekFrom::Start(absolute_offset))?;
 
-        let mut data = vec![0u8; size];
-        self.reader.read_exact(&mut data)?;
+        let data = match read_exact_owned(&mut self.reader, size, self.buffer_size) {
+            Ok(data) => data,
+            Err(error) => {
+                if let Ok(position) = self.reader.stream_position() {
+                    self.position = position;
+                }
+                return Err(error);
+            }
+        };
+        self.position = absolute_end;
 
         Ok(TensorData::new_owned(data))
+    }
+
+    fn tensor_range_by_index(&self, tensor_index: usize) -> Result<(u64, usize)> {
+        let tensor_info = self.tensor_infos.get(tensor_index).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor descriptor index is out of bounds".to_string())
+        })?;
+        let data_size_u64 = tensor_info.checked_expected_data_size()?;
+        let data_size = usize::try_from(data_size_u64).map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' size does not fit this platform",
+                tensor_info.name()
+            ))
+        })?;
+        let absolute_offset =
+            self.tensor_data_offset.checked_add(tensor_info.data_offset()).ok_or_else(|| {
+                GGUFError::InvalidTensorData("Tensor offset overflows u64".to_string())
+            })?;
+        let absolute_end = absolute_offset.checked_add(data_size_u64).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor range overflows u64".to_string())
+        })?;
+        if absolute_end > self.file_size {
+            return Err(GGUFError::UnexpectedEof);
+        }
+        Ok((absolute_offset, data_size))
+    }
+
+    fn read_exact_tracking(&mut self, mut buffer: &mut [u8]) -> Result<()> {
+        while !buffer.is_empty() {
+            match self.reader.read(buffer) {
+                Ok(0) => return Err(GGUFError::UnexpectedEof),
+                Ok(bytes_read) => {
+                    self.position = self
+                        .position
+                        .checked_add(u64::try_from(bytes_read).map_err(|_| {
+                            GGUFError::InvalidTensorData("Read size does not fit u64".to_string())
+                        })?)
+                        .ok_or_else(|| {
+                            GGUFError::InvalidTensorData(
+                                "File reader position overflows u64".to_string(),
+                            )
+                        })?;
+                    let (_, remaining) = buffer.split_at_mut(bytes_read);
+                    buffer = remaining;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     /// Get current position in file
@@ -265,16 +513,25 @@ impl<R: Read + Seek> GGUFFileReader<R> {
         self.tensor_data_offset
     }
 
-    /// Validate the integrity of the GGUF file
+    /// Get the alignment required for tensor offsets.
+    pub fn tensor_alignment(&self) -> u64 {
+        self.tensor_alignment
+    }
+
+    /// Validate structural counts, descriptors, alignment, and payload ranges.
+    ///
+    /// This does not read payload bytes or verify a cryptographic checksum. Use
+    /// [`Self::validate_all_tensor_data`] when every declared range must also be
+    /// read from the source.
     pub fn validate_integrity(&mut self) -> Result<()> {
         // Check header consistency
-        if self.header.tensor_count as usize != self.tensor_infos.len() {
+        if u64::try_from(self.tensor_infos.len()).ok() != Some(self.header.tensor_count) {
             return Err(GGUFError::Format(
                 "Header tensor count doesn't match actual tensor count".to_string(),
             ));
         }
 
-        if self.header.metadata_kv_count as usize != self.metadata.len() {
+        if u64::try_from(self.metadata.len()).ok() != Some(self.header.metadata_kv_count) {
             return Err(GGUFError::Format(
                 "Header metadata count doesn't match actual metadata count".to_string(),
             ));
@@ -286,26 +543,52 @@ impl<R: Read + Seek> GGUFFileReader<R> {
         }
 
         // Check for tensor offset overlaps
-        let mut tensor_ranges: Vec<(u64, u64, &str)> = self
-            .tensor_infos
-            .iter()
-            .map(|t| (t.data_offset(), t.expected_data_size(), t.name()))
-            .collect();
+        let mut tensor_ranges = Vec::new();
+        tensor_ranges.try_reserve(self.tensor_infos.len()).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor range list".to_string())
+        })?;
+        for tensor in &self.tensor_infos {
+            if !tensor.data_offset().is_multiple_of(self.tensor_alignment) {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' offset {} is not aligned to {} bytes",
+                    tensor.name(),
+                    tensor.data_offset(),
+                    self.tensor_alignment
+                )));
+            }
+            let size = tensor.checked_expected_data_size()?;
+            let relative_end = tensor.data_offset().checked_add(size).ok_or_else(|| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' range overflows u64",
+                    tensor.name()
+                ))
+            })?;
+            let absolute_end =
+                self.tensor_data_offset.checked_add(relative_end).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(format!(
+                        "Tensor '{}' absolute range overflows u64",
+                        tensor.name()
+                    ))
+                })?;
+            if absolute_end > self.file_size {
+                return Err(GGUFError::UnexpectedEof);
+            }
+            tensor_ranges.push((tensor.data_offset(), size, tensor.name()));
+        }
 
-        tensor_ranges.sort_by_key(|(offset, _, _)| *offset);
+        tensor_ranges.sort_unstable_by_key(|(offset, _, _)| *offset);
 
         for window in tensor_ranges.windows(2) {
             let (start_offset1, size1, name1) = window[0];
             let (start_offset2, _, name2) = window[1];
 
-            if start_offset1 + size1 > start_offset2 {
+            let end_offset1 = start_offset1.checked_add(size1).ok_or_else(|| {
+                GGUFError::InvalidTensorData(format!("Tensor '{}' range overflows u64", name1))
+            })?;
+            if end_offset1 > start_offset2 {
                 return Err(GGUFError::Format(format!(
                     "Tensor data overlap detected: '{}' ({}..{}) overlaps with '{}' ({}..)",
-                    name1,
-                    start_offset1,
-                    start_offset1 + size1,
-                    name2,
-                    start_offset2
+                    name1, start_offset1, end_offset1, name2, start_offset2
                 )));
             }
         }
@@ -315,7 +598,10 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
     /// Get a summary of the GGUF file
     pub fn summary(&self) -> GGUFFileSummary {
-        let total_tensor_size: u64 = self.tensor_infos.iter().map(|t| t.expected_data_size()).sum();
+        let total_tensor_size = self
+            .tensor_infos
+            .iter()
+            .fold(0u64, |total, tensor| total.saturating_add(tensor.expected_data_size()));
 
         let loaded_tensor_count = self.tensor_infos.iter().filter(|t| t.has_data()).count();
 
@@ -340,24 +626,38 @@ impl<R: Read + Seek> GGUFFileReader<R> {
 
     /// Get memory usage statistics
     pub fn memory_usage(&self) -> GGUFMemoryUsage {
-        let mut total_loaded_bytes = 0;
-        let mut total_expected_bytes = 0;
+        let mut total_loaded_bytes = 0usize;
+        let mut total_expected_bytes = 0usize;
+        let mut tensor_info_size = 0usize;
 
         for tensor_info in &self.tensor_infos {
-            total_expected_bytes += tensor_info.expected_data_size() as usize;
+            tensor_info_size =
+                tensor_info_size.saturating_add(tensor_info.name().len()).saturating_add(32); // Approximate descriptor fields and allocation metadata.
+            total_expected_bytes = total_expected_bytes.saturating_add(
+                tensor_info
+                    .checked_expected_data_size()
+                    .ok()
+                    .and_then(|size| usize::try_from(size).ok())
+                    .unwrap_or(usize::MAX),
+            );
             if let Some(data) = tensor_info.data() {
-                total_loaded_bytes += data.len();
+                total_loaded_bytes = total_loaded_bytes.saturating_add(data.len());
             }
+        }
+
+        // The lookup table deliberately owns one cloned key per tensor so name
+        // lookups remain O(1). Include that cost in the reported reader overhead.
+        for name in self.tensor_name_index.keys() {
+            tensor_info_size = tensor_info_size
+                .saturating_add(name.len())
+                .saturating_add(std::mem::size_of::<String>())
+                .saturating_add(std::mem::size_of::<usize>());
         }
 
         GGUFMemoryUsage {
             header_size: GGUFHeader::size(),
             metadata_size: self.metadata.serialized_size(),
-            tensor_info_size: self
-                .tensor_infos
-                .iter()
-                .map(|t| t.name().len() + 32) // Approximate
-                .sum(),
+            tensor_info_size,
             total_expected_tensor_bytes: total_expected_bytes,
             total_loaded_tensor_bytes: total_loaded_bytes,
         }
@@ -388,19 +688,11 @@ impl<R: Read + Seek> GGUFFileReader<R> {
         F: Fn(&str) -> bool,
     {
         let mut loaded_count = 0;
-        let tensor_names: Vec<String> = self
-            .tensor_infos
-            .iter()
-            .filter(|t| predicate(t.name()))
-            .map(|t| t.name().to_string())
-            .collect();
-
-        for name in tensor_names {
-            if let Some(data) = self.load_tensor_data(&name)? {
-                if let Some(tensor_info) = self.tensor_infos.iter_mut().find(|t| t.name() == name) {
-                    tensor_info.set_data(data);
-                    loaded_count += 1;
-                }
+        for tensor_index in 0..self.tensor_infos.len() {
+            if predicate(self.tensor_infos[tensor_index].name()) {
+                let data = self.load_tensor_data_by_index(tensor_index)?;
+                self.tensor_infos[tensor_index].set_data(data);
+                loaded_count += 1;
             }
         }
 
@@ -411,6 +703,89 @@ impl<R: Read + Seek> GGUFFileReader<R> {
     pub fn into_inner(self) -> R {
         self.reader
     }
+}
+
+fn read_exact_owned<R: Read>(reader: &mut R, size: usize, buffer_size: usize) -> Result<Vec<u8>> {
+    if size == 0 {
+        return Ok(Vec::new());
+    }
+    if buffer_size == 0 {
+        return Err(GGUFError::InvalidTensorData(
+            "File reader buffer size must be greater than zero".to_string(),
+        ));
+    }
+
+    let chunk_size = size.min(buffer_size).min(MAX_READER_CHUNK_SIZE);
+    let mut chunk = Vec::new();
+    chunk.try_reserve_exact(chunk_size).map_err(|_| {
+        GGUFError::InvalidTensorData("Unable to allocate tensor read chunk".to_string())
+    })?;
+    chunk.resize(chunk_size, 0);
+    let mut data = Vec::new();
+    let mut remaining = size;
+    while remaining > 0 {
+        let to_read = remaining.min(chunk.len());
+        reader.read_exact(&mut chunk[..to_read])?;
+        data.try_reserve(to_read).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor data buffer".to_string())
+        })?;
+        data.extend_from_slice(&chunk[..to_read]);
+        remaining -= to_read;
+    }
+    Ok(data)
+}
+
+fn try_zeroed_buffer(size: usize, description: &str) -> Result<Vec<u8>> {
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(size)
+        .map_err(|_| GGUFError::InvalidTensorData(format!("Unable to allocate {description}")))?;
+    buffer.resize(size, 0);
+    Ok(buffer)
+}
+
+fn try_reserve_vec_slot<T>(values: &mut Vec<T>, total: usize, description: &str) -> Result<()> {
+    if values.len() < values.capacity() {
+        return Ok(());
+    }
+    let target = values.capacity().saturating_mul(2).max(MIN_TENSOR_TRACKING_CAPACITY).min(total);
+    values
+        .try_reserve_exact(target.saturating_sub(values.len()))
+        .map_err(|_| GGUFError::InvalidTensorData(format!("Unable to allocate {description}")))
+}
+
+fn try_reserve_map_slot<K: std::hash::Hash + Eq, V>(
+    values: &mut HashMap<K, V>,
+    total: usize,
+    description: &str,
+) -> Result<()> {
+    if values.len() < values.capacity() {
+        return Ok(());
+    }
+    let target = values.capacity().saturating_mul(2).max(MIN_TENSOR_TRACKING_CAPACITY).min(total);
+    values
+        .try_reserve(target.saturating_sub(values.len()))
+        .map_err(|_| GGUFError::InvalidTensorData(format!("Unable to allocate {description}")))
+}
+
+fn try_clone_tensor_name(name: &str) -> Result<String> {
+    let mut owned = String::new();
+    owned
+        .try_reserve_exact(name.len())
+        .map_err(|_| GGUFError::InvalidTensorData("Unable to allocate tensor name".to_string()))?;
+    owned.push_str(name);
+    Ok(owned)
+}
+
+fn checked_align_u64(position: u64, alignment: u64) -> Result<u64> {
+    if alignment == 0 {
+        return Err(GGUFError::InvalidMetadata("Tensor alignment cannot be zero".to_string()));
+    }
+    let remainder = position % alignment;
+    let padding = if remainder == 0 { 0 } else { alignment - remainder };
+    position
+        .checked_add(padding)
+        .ok_or_else(|| GGUFError::Format("Tensor data offset overflows u64".to_string()))
 }
 
 /// Summary information about a GGUF file
@@ -439,7 +814,7 @@ pub struct GGUFMemoryUsage {
     pub header_size: usize,
     /// Size of the metadata section
     pub metadata_size: usize,
-    /// Size of tensor info section
+    /// Approximate size of tensor descriptors and the tensor-name lookup index
     pub tensor_info_size: usize,
     /// Expected total tensor data size
     pub total_expected_tensor_bytes: usize,
@@ -458,8 +833,8 @@ impl GGUFMemoryUsage {
         self.overhead_bytes() + self.total_loaded_tensor_bytes
     }
 
-    /// Get compression ratio (loaded / expected)
-    pub fn compression_ratio(&self) -> f32 {
+    /// Return the fraction of expected tensor bytes currently loaded in memory.
+    pub fn loaded_fraction(&self) -> f32 {
         if self.total_expected_tensor_bytes == 0 {
             0.0
         } else {
@@ -513,7 +888,7 @@ impl std::fmt::Display for GGUFMemoryUsage {
         writeln!(f, "  Expected tensor data: {} bytes", self.total_expected_tensor_bytes)?;
         writeln!(f, "  Loaded tensor data: {} bytes", self.total_loaded_tensor_bytes)?;
         writeln!(f, "  Total loaded: {} bytes", self.total_loaded_bytes())?;
-        writeln!(f, "  Compression ratio: {:.2}%", self.compression_ratio() * 100.0)?;
+        writeln!(f, "  Loaded fraction: {:.2}%", self.loaded_fraction() * 100.0)?;
 
         Ok(())
     }
@@ -523,7 +898,33 @@ impl std::fmt::Display for GGUFMemoryUsage {
 mod tests {
     use super::*;
     use crate::format::constants::*;
+    use std::cell::Cell;
     use std::io::Cursor;
+    use std::rc::Rc;
+
+    #[derive(Debug)]
+    struct PayloadReadTracker {
+        cursor: Cursor<Vec<u8>>,
+        payload_start: u64,
+        payload_read: Rc<Cell<bool>>,
+    }
+
+    impl Read for PayloadReadTracker {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            let start = self.cursor.position();
+            let bytes_read = self.cursor.read(buffer)?;
+            if start.saturating_add(bytes_read as u64) > self.payload_start {
+                self.payload_read.set(true);
+            }
+            Ok(bytes_read)
+        }
+    }
+
+    impl Seek for PayloadReadTracker {
+        fn seek(&mut self, position: SeekFrom) -> std::io::Result<u64> {
+            self.cursor.seek(position)
+        }
+    }
 
     fn create_minimal_gguf_data() -> Vec<u8> {
         let mut data = Vec::new();
@@ -561,6 +962,60 @@ mod tests {
         data
     }
 
+    fn create_duplicate_tensor_gguf_data() -> Vec<u8> {
+        let mut data = create_minimal_gguf_data();
+        data[8..16].copy_from_slice(&2u64.to_le_bytes());
+        let tensor_name = data.windows(11).position(|window| window == b"test_tensor").unwrap();
+        let descriptor_start = tensor_name - 8;
+        let descriptor_end = tensor_name + 11 + 4 + (2 * 8) + 4 + 8;
+        let duplicate = data[descriptor_start..descriptor_end].to_vec();
+        data.splice(descriptor_end..descriptor_end, duplicate);
+        data
+    }
+
+    fn create_many_tensor_gguf_data(count: usize) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.extend_from_slice(&GGUF_MAGIC.to_le_bytes());
+        data.extend_from_slice(&GGUF_VERSION.to_le_bytes());
+        data.extend_from_slice(&(count as u64).to_le_bytes());
+        data.extend_from_slice(&0u64.to_le_bytes());
+
+        for index in 0..count {
+            let name = format!("tensor_{index:04}");
+            data.extend_from_slice(&(name.len() as u64).to_le_bytes());
+            data.extend_from_slice(name.as_bytes());
+            data.extend_from_slice(&1u32.to_le_bytes());
+            data.extend_from_slice(&1u64.to_le_bytes());
+            data.extend_from_slice(&0u32.to_le_bytes());
+            data.extend_from_slice(&((index as u64) * 32).to_le_bytes());
+        }
+        while data.len() % 32 != 0 {
+            data.push(0);
+        }
+        for index in 0..count {
+            data.extend_from_slice(&[index as u8; 4]);
+            if index + 1 < count {
+                data.extend_from_slice(&[0; 28]);
+            }
+        }
+        data
+    }
+
+    fn create_overlapping_tensor_gguf_data() -> (Vec<u8>, u64) {
+        let mut data = create_many_tensor_gguf_data(2);
+        let second_name = b"tensor_0001";
+        let name_position = data
+            .windows(second_name.len())
+            .position(|window| window == second_name)
+            .unwrap();
+        let offset_position = name_position + second_name.len() + 4 + 8 + 4;
+        data[offset_position..offset_position + 8].copy_from_slice(&0u64.to_le_bytes());
+
+        // The fixture stores 4 bytes for each tensor with a 28-byte alignment gap.
+        let payload_start = (data.len() - 36) as u64;
+        (data, payload_start)
+    }
+
     #[test]
     fn test_gguf_file_reader_creation() {
         let data = create_minimal_gguf_data();
@@ -573,6 +1028,34 @@ mod tests {
     }
 
     #[test]
+    fn test_duplicate_tensor_names_are_rejected() {
+        let error =
+            GGUFFileReader::new(Cursor::new(create_duplicate_tensor_gguf_data())).unwrap_err();
+        assert!(matches!(
+            error,
+            GGUFError::InvalidTensorData(message) if message.contains("Duplicate tensor name")
+        ));
+    }
+
+    #[test]
+    fn test_large_name_index_preserves_descriptor_order_and_lookup() {
+        const TENSOR_COUNT: usize = 256;
+        let mut reader =
+            GGUFFileReader::new(Cursor::new(create_many_tensor_gguf_data(TENSOR_COUNT))).unwrap();
+        assert_eq!(reader.tensor_name_index.len(), TENSOR_COUNT);
+
+        for index in (0..TENSOR_COUNT).rev() {
+            let name = format!("tensor_{index:04}");
+            let descriptor = reader.get_tensor_info(&name).unwrap();
+            assert_eq!(descriptor.name(), name);
+            assert_eq!(descriptor.data_offset(), (index as u64) * 32);
+            let payload = reader.load_tensor_data(&name).unwrap().unwrap();
+            assert_eq!(payload.as_slice(), &[index as u8; 4]);
+        }
+        assert!(reader.get_tensor_info("missing").is_none());
+    }
+
+    #[test]
     fn test_gguf_reader_config() {
         let data = create_minimal_gguf_data();
         let cursor = Cursor::new(data);
@@ -581,12 +1064,37 @@ mod tests {
             validate_integrity: true,
             eager_load_tensors: false,
             max_file_size: 1024,
+            max_metadata_size: 1024,
+            max_decoded_metadata_size: 1024,
             buffer_size: 8192,
             use_mmap: false,
         };
 
         let reader = GGUFFileReader::with_config(cursor, config).unwrap();
         assert!(!reader.is_fully_loaded());
+
+        let unsupported = GGUFReaderConfig { use_mmap: true, ..Default::default() };
+        assert!(matches!(
+            GGUFFileReader::with_config(Cursor::new(create_minimal_gguf_data()), unsupported),
+            Err(GGUFError::FeatureUnavailable(_))
+        ));
+    }
+
+    #[test]
+    fn test_file_metadata_budgets_are_configurable() {
+        let serialized_error = GGUFFileReader::with_config(
+            Cursor::new(create_minimal_gguf_data()),
+            GGUFReaderConfig { max_metadata_size: 1, ..Default::default() },
+        )
+        .unwrap_err();
+        assert!(serialized_error.to_string().contains("Metadata exceeds byte limit"));
+
+        let decoded_error = GGUFFileReader::with_config(
+            Cursor::new(create_minimal_gguf_data()),
+            GGUFReaderConfig { max_decoded_metadata_size: 0, ..Default::default() },
+        )
+        .unwrap_err();
+        assert!(decoded_error.to_string().contains("Decoded metadata allocation exceeds budget"));
     }
 
     #[test]
@@ -609,6 +1117,55 @@ mod tests {
         let tensor_data = reader.load_tensor_data("test_tensor").unwrap();
         assert!(tensor_data.is_some());
         assert_eq!(tensor_data.unwrap().len(), 24); // 6 F32 = 24 bytes
+        assert_eq!(reader.position(), reader.tensor_data_offset() + 24);
+
+        reader.read_tensor_data_at(0, 4).unwrap();
+        assert_eq!(reader.position(), reader.tensor_data_offset() + 4);
+    }
+
+    #[test]
+    fn test_payload_validation_streams_without_retaining_data() {
+        let config = GGUFReaderConfig { buffer_size: 3, ..Default::default() };
+        let mut reader =
+            GGUFFileReader::with_config(Cursor::new(create_minimal_gguf_data()), config).unwrap();
+
+        reader.validate_all_tensor_data().unwrap();
+        assert!(!reader.is_fully_loaded());
+        assert!(reader.tensor_infos().iter().all(|tensor| !tensor.has_data()));
+        assert_eq!(reader.position(), reader.tensor_data_offset() + 24);
+    }
+
+    #[test]
+    fn test_payload_comparison_is_chunked_and_does_not_retain_data() {
+        let config = GGUFReaderConfig { buffer_size: 3, ..Default::default() };
+        let mut left =
+            GGUFFileReader::with_config(Cursor::new(create_minimal_gguf_data()), config.clone())
+                .unwrap();
+        let mut equal =
+            GGUFFileReader::with_config(Cursor::new(create_minimal_gguf_data()), config.clone())
+                .unwrap();
+        assert!(left.tensor_data_equals("test_tensor", &mut equal).unwrap());
+
+        let mut different_data = create_minimal_gguf_data();
+        *different_data.last_mut().unwrap() = 1;
+        let mut different =
+            GGUFFileReader::with_config(Cursor::new(different_data), config).unwrap();
+        assert!(!left.tensor_data_equals("test_tensor", &mut different).unwrap());
+        assert!(left.tensor_infos().iter().all(|tensor| !tensor.has_data()));
+        assert!(different.tensor_infos().iter().all(|tensor| !tensor.has_data()));
+    }
+
+    #[test]
+    fn test_tensor_tracking_growth_is_bounded() {
+        let mut descriptors = Vec::<u8>::new();
+        try_reserve_vec_slot(&mut descriptors, usize::MAX, "test descriptors").unwrap();
+        assert!(descriptors.capacity() >= MIN_TENSOR_TRACKING_CAPACITY);
+        assert!(descriptors.capacity() < 1024);
+
+        let mut names = HashMap::<u8, usize>::new();
+        try_reserve_map_slot(&mut names, usize::MAX, "test names").unwrap();
+        assert!(names.capacity() >= MIN_TENSOR_TRACKING_CAPACITY);
+        assert!(names.capacity() < 1024);
     }
 
     #[test]
@@ -637,7 +1194,7 @@ mod tests {
         assert!(memory_usage.metadata_size > 0);
         assert_eq!(memory_usage.total_expected_tensor_bytes, 24);
         assert_eq!(memory_usage.total_loaded_tensor_bytes, 0);
-        assert_eq!(memory_usage.compression_ratio(), 0.0);
+        assert_eq!(memory_usage.loaded_fraction(), 0.0);
     }
 
     #[test]
@@ -658,6 +1215,26 @@ mod tests {
 
         let reader = GGUFFileReader::with_config(cursor, config).unwrap();
         assert!(reader.is_fully_loaded());
+    }
+
+    #[test]
+    fn test_integrity_validation_precedes_eager_payload_reads() {
+        let (data, payload_start) = create_overlapping_tensor_gguf_data();
+        let payload_read = Rc::new(Cell::new(false));
+        let reader = PayloadReadTracker {
+            cursor: Cursor::new(data),
+            payload_start,
+            payload_read: Rc::clone(&payload_read),
+        };
+        let config = GGUFReaderConfig {
+            eager_load_tensors: true,
+            validate_integrity: true,
+            ..Default::default()
+        };
+
+        let error = GGUFFileReader::with_config(reader, config).unwrap_err();
+        assert!(error.to_string().contains("overlap"));
+        assert!(!payload_read.get(), "malformed descriptors must fail before payload reads");
     }
 
     #[test]

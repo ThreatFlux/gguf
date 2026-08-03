@@ -1,13 +1,15 @@
 [package]
 name = "gguf-cli"
-version = "0.2.6"
+version = "0.3.0"
 edition = "2021"
+rust-version = "1.87"
 description = "Command-line tool for working with GGUF (GGML Universal Format) files"
-authors = ["Claude Code", "Wyatt Roersma"]
+authors = ["ThreatFlux", "Wyatt Roersma"]
 license = "MIT"
-repository = "https://github.com/ThreatFlux/gguf_rs"
-homepage = "https://github.com/ThreatFlux/gguf_rs"
+repository = "https://github.com/ThreatFlux/gguf"
+homepage = "https://github.com/ThreatFlux/gguf"
 readme = "../README.md"
+publish = false
 keywords = ["gguf", "ggml", "machine-learning", "cli", "format"]
 categories = ["command-line-utilities", "parsing"]
 
@@ -20,44 +22,28 @@ path = "src/main.rs"
 gguf-rs-lib = { path = "..", features = ["std"] }
 
 # CLI framework
-clap = { version = "4.4", features = ["derive", "color"] }
+clap = { version = "4.6", features = ["derive", "color"] }
 
 # Error handling
 anyhow = "1.0"
-thiserror = "1.0"
 
 # Serialization for output formats
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_yaml = "0.9"
-toml = "0.8"
+toml = "1.1"
 
 # Terminal and output formatting
-colored = { version = "2.0", optional = true }
-tabled = { version = "0.15", optional = true }
-indicatif = { version = "0.17", features = ["rayon"], optional = true }
+colored = { version = "3.1", optional = true }
 
 # File I/O and path handling
-walkdir = "2.4"
-glob = "0.3"
-
-# Parallel processing
-rayon = "1.8"
-
-# Optional async support
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread", "fs", "macros"], optional = true }
-
-# Optional hexdump functionality
-hexyl = { version = "0.14", optional = true }
+walkdir = "2.5"
 
 [features]
-default = ["color", "progress"]
-color = ["dep:colored", "dep:tabled"]
-progress = ["dep:indicatif"]
-async = ["dep:tokio", "gguf-rs-lib/async"]
-hexdump = ["dep:hexyl"]
+default = ["color"]
+color = ["dep:colored"]
 
 [dev-dependencies]
-tempfile = "3.8"
+tempfile = "3.27"
 assert_cmd = "2.0"
 predicates = "3.0"

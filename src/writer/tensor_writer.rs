@@ -4,6 +4,8 @@ use crate::error::{GGUFError, Result};
 use crate::tensor::{TensorData, TensorInfo};
 use std::io::Write;
 
+const MAX_WRITE_CHUNK_SIZE: usize = 1024 * 1024;
+
 /// Specialized writer for tensor data
 #[derive(Debug)]
 pub struct TensorWriter<W> {
@@ -16,7 +18,7 @@ pub struct TensorWriter<W> {
 pub struct TensorWriteConfig {
     /// Whether to validate tensor data before writing
     pub validate_data: bool,
-    /// Buffer size for chunked writing
+    /// Preferred buffer size for chunked writing; temporary chunks are capped at 1 MiB.
     pub buffer_size: usize,
     /// Whether to compute checksums
     pub compute_checksums: bool,
@@ -61,15 +63,16 @@ impl<W: Write> TensorWriter<W> {
         data: &TensorData,
         config: &TensorWriteConfig,
     ) -> Result<TensorWriteResult> {
+        self.validate_tensor_data(tensor_info, data)?;
         if config.validate_data {
-            self.validate_tensor_data(tensor_info, data)?;
+            data.validate()?;
         }
 
-        let data_slice = data.as_slice();
+        let data_slice = data.try_as_slice()?;
         self.writer.write_all(data_slice)?;
 
         let bytes_written = data_slice.len();
-        self.position += bytes_written as u64;
+        self.advance(bytes_written)?;
 
         let checksum = if config.compute_checksums { Some(data.checksum()) } else { None };
 
@@ -83,32 +86,63 @@ impl<W: Write> TensorWriter<W> {
         mut reader: R,
         config: &TensorWriteConfig,
     ) -> Result<TensorWriteResult> {
-        let expected_size = tensor_info.expected_data_size() as usize;
-        let mut buffer = vec![0u8; config.buffer_size.min(expected_size)];
+        let expected_size =
+            usize::try_from(tensor_info.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' size does not fit this platform",
+                    tensor_info.name()
+                ))
+            })?;
+        if expected_size > 0 && config.buffer_size == 0 {
+            return Err(GGUFError::InvalidTensorData(
+                "Tensor write buffer size must be greater than zero".to_string(),
+            ));
+        }
+        let chunk_size = config.buffer_size.min(expected_size).min(MAX_WRITE_CHUNK_SIZE);
+        let mut buffer = Vec::new();
+        buffer.try_reserve_exact(chunk_size).map_err(|_| {
+            GGUFError::InvalidTensorData("Unable to allocate tensor write chunk".to_string())
+        })?;
+        buffer.resize(chunk_size, 0);
         let mut total_written = 0;
+        let mut checksum = 0u32;
 
         while total_written < expected_size {
             let to_read = (expected_size - total_written).min(buffer.len());
-            buffer.resize(to_read, 0);
+            reader.read_exact(&mut buffer[..to_read])?;
+            self.writer.write_all(&buffer[..to_read])?;
 
-            reader.read_exact(&mut buffer)?;
-            self.writer.write_all(&buffer)?;
+            if config.compute_checksums {
+                for (index, &byte) in buffer[..to_read].iter().enumerate() {
+                    checksum =
+                        checksum.wrapping_add((byte as u32) << ((total_written + index) % 24));
+                    checksum = checksum.wrapping_mul(0x9e37_79b9);
+                }
+            }
 
-            total_written += to_read;
+            total_written = total_written.checked_add(to_read).ok_or_else(|| {
+                GGUFError::InvalidTensorData("Tensor write size overflows usize".to_string())
+            })?;
         }
 
-        self.position += total_written as u64;
+        self.advance(total_written)?;
 
         Ok(TensorWriteResult {
             bytes_written: total_written,
             position_after: self.position,
-            checksum: None, // Not computed for chunked writes
+            checksum: config.compute_checksums.then_some(checksum),
         })
     }
 
     /// Validate tensor data before writing
     fn validate_tensor_data(&self, tensor_info: &TensorInfo, data: &TensorData) -> Result<()> {
-        let expected_size = tensor_info.expected_data_size() as usize;
+        let expected_size =
+            usize::try_from(tensor_info.checked_expected_data_size()?).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' size does not fit this platform",
+                    tensor_info.name()
+                ))
+            })?;
         if data.len() != expected_size {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Tensor '{}' size mismatch: expected {}, got {}",
@@ -118,6 +152,15 @@ impl<W: Write> TensorWriter<W> {
             )));
         }
 
+        Ok(())
+    }
+
+    fn advance(&mut self, bytes: usize) -> Result<()> {
+        let bytes = u64::try_from(bytes)
+            .map_err(|_| GGUFError::InvalidTensorData("Write size does not fit u64".to_string()))?;
+        self.position = self.position.checked_add(bytes).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor writer position overflows u64".to_string())
+        })?;
         Ok(())
     }
 
@@ -185,5 +228,18 @@ mod tests {
         let wrong_data = TensorData::new_owned(vec![0u8; 4]); // Should be 8
         let result = writer.write_tensor(&tensor_info, &wrong_data);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zero_chunk_buffer_is_rejected() {
+        let mut writer = TensorWriter::new(Vec::new());
+        let tensor_info = TensorInfo::new(
+            "test".to_string(),
+            TensorShape::new(vec![1]).unwrap(),
+            TensorType::F32,
+            0,
+        );
+        let config = TensorWriteConfig { buffer_size: 0, ..Default::default() };
+        assert!(writer.write_tensor_chunked(&tensor_info, &[][..], &config).is_err());
     }
 }

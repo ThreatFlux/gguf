@@ -2,6 +2,7 @@
 
 use crate::error::{GGUFError, Result};
 use crate::format::constants::*;
+use crate::format::types::GGUFTensorType;
 
 #[cfg(feature = "std")]
 // Simplified implementation to avoid byteorder recursion issues
@@ -99,19 +100,29 @@ impl GGUFHeader {
 
     /// Get the total size of header + metadata + tensor info sections
     pub fn calculate_metadata_size(&self, metadata_size: usize, tensor_info_size: usize) -> usize {
-        Self::size() + metadata_size + tensor_info_size
+        self.checked_metadata_size(metadata_size, tensor_info_size)
+            .unwrap_or(usize::MAX)
+    }
+
+    /// Calculate the header and descriptor size without overflowing.
+    pub fn checked_metadata_size(
+        &self,
+        metadata_size: usize,
+        tensor_info_size: usize,
+    ) -> Option<usize> {
+        Self::size().checked_add(metadata_size)?.checked_add(tensor_info_size)
     }
 
     /// Check if the tensor count is reasonable (not too large)
     pub fn is_tensor_count_reasonable(&self) -> bool {
         // Reasonable limit: 1 million tensors
-        self.tensor_count <= 1_000_000
+        self.tensor_count <= GGUF_MAX_TENSOR_COUNT
     }
 
     /// Check if the metadata count is reasonable (not too large)
     pub fn is_metadata_count_reasonable(&self) -> bool {
         // Reasonable limit: 100,000 metadata items
-        self.metadata_kv_count <= 100_000
+        self.metadata_kv_count <= GGUF_MAX_METADATA_COUNT
     }
 
     /// Perform comprehensive validation including reasonableness checks
@@ -171,7 +182,17 @@ impl TensorInfo {
 
     /// Calculate the number of elements in the tensor
     pub fn element_count(&self) -> u64 {
-        self.dimensions.iter().product()
+        self.checked_element_count().unwrap_or(u64::MAX)
+    }
+
+    /// Calculate the number of elements without overflowing.
+    pub fn checked_element_count(&self) -> Option<u64> {
+        if self.dimensions.contains(&0) {
+            return Some(0);
+        }
+        self.dimensions
+            .iter()
+            .try_fold(1u64, |count, &dimension| count.checked_mul(dimension))
     }
 
     /// Get the shape as a slice
@@ -181,18 +202,21 @@ impl TensorInfo {
 
     /// Check if the tensor info is valid
     pub fn is_valid(&self) -> bool {
-        // Basic validation
-        !self.name.is_empty()
-            && self.n_dimensions as usize == self.dimensions.len()
-            && self.n_dimensions > 0
-            && !self.dimensions.is_empty()
-            && self.dimensions.iter().all(|&d| d > 0)
+        self.validate().is_ok()
     }
 
     /// Validate the tensor info
     pub fn validate(&self) -> Result<()> {
         if self.name.is_empty() {
             return Err(GGUFError::InvalidTensorData("Tensor name cannot be empty".to_string()));
+        }
+
+        if self.name.len() > GGUF_MAX_TENSOR_NAME_LENGTH {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Tensor name is {} bytes; maximum is {}",
+                self.name.len(),
+                GGUF_MAX_TENSOR_NAME_LENGTH
+            )));
         }
 
         if self.n_dimensions as usize != self.dimensions.len() {
@@ -209,14 +233,37 @@ impl TensorInfo {
             ));
         }
 
+        if self.n_dimensions as usize > GGUF_MAX_DIMENSIONS {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Invalid dimension count: {}",
+                self.n_dimensions
+            )));
+        }
+
         // Allow zero dimensions for empty tensors - they represent tensors with 0 elements
         // This is mathematically valid and commonly used in practice
 
-        // Check for reasonable dimension sizes (prevent integer overflow)
-        let max_dim_size = u64::MAX / (self.n_dimensions as u64 * 8); // Conservative limit
-        if self.dimensions.iter().any(|&d| d > max_dim_size) {
-            return Err(GGUFError::InvalidTensorData("Dimension size too large".to_string()));
+        let element_count = self.checked_element_count().ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor element count overflows u64".to_string())
+        })?;
+
+        let tensor_type = GGUFTensorType::from_u32(self.tensor_type)?;
+        if tensor_type.is_quantized() {
+            let block_size = u64::try_from(tensor_type.block_size()).map_err(|_| {
+                GGUFError::InvalidTensorData("Tensor block size does not fit u64".to_string())
+            })?;
+            if block_size == 0 || !self.dimensions[0].is_multiple_of(block_size) {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "First dimension {} is not divisible by {} for {}",
+                    self.dimensions[0],
+                    block_size,
+                    tensor_type.name()
+                )));
+            }
         }
+        tensor_type.checked_calculate_size(element_count).ok_or_else(|| {
+            GGUFError::InvalidTensorData("Tensor data size overflows u64".to_string())
+        })?;
 
         Ok(())
     }
@@ -224,17 +271,29 @@ impl TensorInfo {
     /// Calculate the minimum size needed to store this tensor info
     pub fn serialized_size(&self) -> usize {
         // String length (8 bytes) + string data + n_dimensions (4 bytes) + dimensions + type (4 bytes) + offset (8 bytes)
-        8 + self.name.len() + 4 + (self.dimensions.len() * 8) + 4 + 8
+        self.checked_serialized_size().unwrap_or(usize::MAX)
+    }
+
+    /// Calculate the serialized descriptor size without overflowing.
+    pub fn checked_serialized_size(&self) -> Option<usize> {
+        8usize
+            .checked_add(self.name.len())?
+            .checked_add(4)?
+            .checked_add(self.dimensions.len().checked_mul(8)?)?
+            .checked_add(4)?
+            .checked_add(8)
     }
 
     /// Read tensor info from a reader
     #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         // Read string length and name
-        let name_len = read_u64(reader)? as usize;
-        if name_len > GGUF_MAX_STRING_LENGTH {
+        let name_len = read_u64(reader)?;
+        if name_len > GGUF_MAX_TENSOR_NAME_LENGTH as u64 {
             return Err(GGUFError::Format(format!("Tensor name too long: {} bytes", name_len)));
         }
+        let name_len = usize::try_from(name_len)
+            .map_err(|_| GGUFError::Format("Tensor name length does not fit usize".to_string()))?;
 
         let mut name_bytes = vec![0u8; name_len];
         reader.read_exact(&mut name_bytes)?;
@@ -243,7 +302,7 @@ impl TensorInfo {
 
         // Read dimensions
         let n_dimensions = read_u32(reader)?;
-        if n_dimensions == 0 || n_dimensions > 8 {
+        if n_dimensions == 0 || n_dimensions as usize > GGUF_MAX_DIMENSIONS {
             return Err(GGUFError::InvalidTensorData(format!(
                 "Invalid dimension count: {}",
                 n_dimensions
@@ -400,6 +459,16 @@ mod tests {
         let mut mismatched = TensorInfo::new("test".to_string(), vec![2, 3], 0, 0);
         mismatched.n_dimensions = 5;
         assert!(mismatched.validate().is_err());
+
+        let excessive_rank = TensorInfo::new("test".to_string(), vec![1, 1, 1, 1, 1], 0, 0);
+        assert!(excessive_rank.validate().is_err());
+
+        let unknown_type = TensorInfo::new("test".to_string(), vec![1], 99, 0);
+        assert!(unknown_type.validate().is_err());
+
+        let partial_quant_block =
+            TensorInfo::new("test".to_string(), vec![33], GGUFTensorType::Q4_0 as u32, 0);
+        assert!(partial_quant_block.validate().is_err());
     }
 
     #[test]

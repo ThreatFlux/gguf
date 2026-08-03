@@ -1,244 +1,193 @@
-# GGUF Library Testing Guide
+# Testing guide
 
-This document describes the comprehensive testing infrastructure for the GGUF library, designed to achieve >90% code coverage.
+This workspace has a library package (`gguf-rs-lib`), an unpublished CLI
+package (`gguf-cli`), unit and integration targets, property tests, doctests,
+examples, and optional feature paths.
 
-## Test Structure
+Use `--locked` so local and CI dependency resolution uses the reviewed
+workspace lockfile.
 
-The test suite is organized into several categories:
+## Short loop
 
-### 1. Unit Tests (`tests/unit/`)
-- **Format Tests** (`format_tests.rs`): Tests for GGUF format components
-  - Constants validation
-  - Header serialization/deserialization
-  - Metadata operations
-  - Alignment calculations
-  - Endian conversion
-  - Type system validation
-
-- **Tensor Tests** (`tensor_tests.rs`): Tests for tensor operations
-  - Tensor type validation
-  - Shape calculations
-  - Data type conversions
-  - Quantization handling
-  - Size calculations
-
-- **Reader Tests** (`reader_tests.rs`): Tests for file reading
-  - File reader creation and validation
-  - Stream reading operations
-  - Tensor data loading
-  - Error handling
-  - Memory-mapped file access
-
-- **Writer Tests** (`writer_tests.rs`): Tests for file writing
-  - File writer operations
-  - Stream writing
-  - Tensor data writing
-  - Alignment and padding
-  - Round-trip validation
-
-- **Builder Tests** (`builder_tests.rs`): Tests for high-level builders
-  - GGUF builder operations
-  - Metadata builder
-  - Tensor builder
-  - Validation logic
-  - Complex model creation
-
-- **Error Tests** (`error_tests.rs`): Comprehensive error handling
-  - All error types and variants
-  - Error propagation
-  - Edge cases and boundary conditions
-  - Concurrent access patterns
-
-### 2. Integration Tests (`tests/integration/`)
-- **End-to-End Tests** (`end_to_end_tests.rs`): Complete workflows
-  - Complex model creation
-  - Round-trip data integrity
-  - Mixed tensor types
-  - Comprehensive metadata
-
-- **Format Conversion Tests** (`format_conversion_tests.rs`): Format handling
-  - Version compatibility
-  - Endianness handling
-  - Alignment scenarios
-  - String encoding
-  - Large metadata handling
-
-- **Quantization Tests** (`quantization_tests.rs`): Quantization features
-  - Quantized tensor handling
-  - Block size validation
-  - Size calculations
-
-- **Large File Tests** (`large_file_tests.rs`): Performance and scalability
-  - Large tensor handling
-  - Many small tensors
-  - Large metadata sets
-
-- **Compatibility Tests** (`compatibility_tests.rs`): Edge cases
-  - Empty files
-  - Special characters
-  - Unicode handling
-  - Zero-dimensional tensors
-
-### 3. Property-Based Tests (`tests/property_based/`)
-- **Tensor Properties** (`tensor_property_tests.rs`): Random tensor validation
-  - Random shapes and data
-  - Round-trip properties
-  - Size calculations
-  - Quantization alignment
-
-- **Metadata Properties** (`metadata_property_tests.rs`): Metadata validation
-  - Random metadata generation
-  - Type mixing
-  - Size limits
-  - Key variations
-
-- **Alignment Properties** (`alignment_property_tests.rs`): Alignment validation
-  - Alignment calculations
-  - Padding properties
-  - Edge cases
-
-### 4. Test Fixtures (`tests/fixtures/`)
-- Pre-built test data for various scenarios
-- Valid and invalid GGUF files
-- Edge case data
-- Performance test data
-
-## Running Tests
-
-### Quick Tests
 ```bash
 ./scripts/run_quick_tests.sh
 ```
 
-### Full Test Suite with Coverage
+The quick script checks formatting, the library, focused integration targets,
+documentation links, and package contents. Run the full set before opening a
+pull request:
+
 ```bash
+./scripts/test-all.sh
+```
+
+## Core commands
+
+```bash
+# All workspace tests with optional APIs enabled
+cargo test --locked --workspace --all-features
+
+# Library unit tests and inline module tests
+cargo test --locked -p gguf-rs-lib --lib --all-features
+
+# Standalone integration target
+cargo test --locked -p gguf-rs-lib --test integration_tests --all-features
+
+# Nested unit, integration, and property modules
+cargo test --locked -p gguf-rs-lib --test lib --all-features
+```
+
+The nested suites can be filtered using their module paths:
+
+```bash
+cargo test --locked -p gguf-rs-lib --test lib unit::
+cargo test --locked -p gguf-rs-lib --test lib integration::
+cargo test --locked -p gguf-rs-lib --test lib property_based::
+```
+
+To inspect output from one test:
+
+```bash
+cargo test --locked -p gguf-rs-lib test_name -- --exact --nocapture
+```
+
+Omit `--exact` when using a substring filter.
+
+## Feature checks
+
+The supported non-default library configuration is `no_std + alloc`. Bare
+`--no-default-features` is not supported.
+
+```bash
+cargo check --locked -p gguf-rs-lib
+cargo check --locked -p gguf-rs-lib --all-features
+cargo check --locked -p gguf-rs-lib --no-default-features --features alloc
+cargo test --locked -p gguf-rs-lib --no-default-features --features alloc --test alloc_only
+cargo check --locked -p gguf-cli --all-features
+```
+
+The `alloc_only` integration target exercises public metadata, shape, layout,
+and tensor-type geometry APIs with the library compiled without `std`. CI runs
+it on both Rust 1.97.1 and the declared MSRV.
+
+The `async` and `mmap` features imply `std`, so `--features async` and
+`--features mmap` are sufficient from the default configuration.
+
+## Documentation and examples
+
+```bash
+cargo test --locked -p gguf-rs-lib --doc --all-features
+cargo doc --locked --workspace --all-features --no-deps
+cargo build --locked -p gguf-rs-lib --examples --all-features
+python3 scripts/check_docs.py
+```
+
+Run examples that do not require an external file:
+
+```bash
+cargo run --locked --example roundtrip_test
+cargo run --locked --example create_test_gguf
+```
+
+The generated example file belongs under `target/examples/` and is disposable.
+Do not copy it into the repository root.
+
+## Property tests
+
+Property tests live below `tests/property_based/` and are compiled through the
+`lib` integration-test target. Change the case count locally with:
+
+```bash
+PROPTEST_CASES=256 \
+  cargo test --locked -p gguf-rs-lib --test lib property_based::
+```
+
+When Proptest records a minimal failing seed under `proptest-regressions/`,
+include it with the bug fix if it represents a useful permanent regression.
+
+## Coverage
+
+Coverage is generated with `cargo-llvm-cov`. Install it explicitly, then run:
+
+```bash
+cargo install cargo-llvm-cov --locked
 ./scripts/run_tests_with_coverage.sh
 ```
 
-### Individual Test Categories
+Reports are written below `target/coverage/`:
+
+- `target/coverage/lcov.info`
+- `target/coverage/html/index.html`
+
+Coverage output is generated evidence, not source. Never commit `lcov.info` or
+an HTML coverage directory. A coverage percentage is useful for finding blind
+spots but is not a substitute for assertions over malformed input, limits,
+and compatibility.
+
+## Package verification
+
 ```bash
-# Unit tests only
-cargo test unit
-
-# Integration tests only
-cargo test integration
-
-# Property-based tests
-cargo test property_based
-
-# Library tests
-cargo test --lib
+./scripts/check_package.sh
 ```
 
-## Coverage Measurement
+The checker runs `cargo package --list` for the publishable library and
+enforces its allowlisted content. It also rejects generated root artifacts such
+as coverage reports and GGUF example output.
 
-The project uses `cargo-tarpaulin` for coverage measurement:
+For a full package build without publishing:
 
-1. **Installation**: The coverage script automatically installs `cargo-tarpaulin` if needed
-2. **Reports**: Generated in HTML and XML formats in `target/coverage/`
-3. **Target**: >90% line coverage goal
-4. **Exclusions**: Test files, examples, and benchmarks are excluded from coverage
-
-### Coverage Reports
-- **HTML Report**: `target/coverage/tarpaulin-report.html`
-- **XML Report**: `target/coverage/cobertura.xml`
-
-## Test Configuration
-
-### Cargo.toml Dependencies
-```toml
-[dev-dependencies]
-proptest = "1.4"
-quickcheck = "1.0"
-quickcheck_macros = "1.0"
-criterion = "0.5"
-tempfile = "3.8"
-tokio-test = "0.4"
+```bash
+cargo package --locked -p gguf-rs-lib --allow-dirty
 ```
 
-### Property Test Configuration
-- Default: 100 test cases per property
-- Reduced cases for complex tests: 10 cases
-- Configurable via `PROPTEST_CASES` environment variable
+`--allow-dirty` permits testing an uncommitted worktree; it does not change
+package contents.
 
-## Test Coverage Strategy
+## Test data
 
-### Code Paths Covered
-1. **Happy Paths**: Normal operation scenarios
-2. **Error Paths**: All error conditions and edge cases
-3. **Boundary Conditions**: Limits and edge values
-4. **Concurrent Access**: Thread safety validation
-5. **Format Compatibility**: Version and format variations
+Prefer in-memory bytes generated by a fixture helper or a temporary file.
+Committed binary fixtures must be small, reviewed, documented, and consumed by
+a test. Full model files belong outside the repository.
 
-### Areas of Focus
-1. **Data Integrity**: Round-trip validation for all operations
-2. **Error Handling**: Comprehensive error scenarios
-3. **Performance**: Large data handling
-4. **Compatibility**: Format variations and edge cases
-5. **Type Safety**: All tensor and metadata types
+When testing a real file manually:
 
-## Achieving >90% Coverage
+```bash
+cargo run --locked --example inspect_gguf -- /path/to/model.gguf
+```
 
-### Key Strategies
-1. **Comprehensive Unit Tests**: Test every public function and method
-2. **Error Path Testing**: Test all error conditions
-3. **Integration Testing**: End-to-end workflows
-4. **Property-Based Testing**: Random input validation
-5. **Edge Case Testing**: Boundary conditions and special cases
+Recognized quantized payloads are size-checked as raw GGML blocks; the crate
+does not dequantize or validate their numeric meaning. See
+[format support](docs/format-support.md#tensor-payloads).
 
-### Coverage Gaps to Address
-1. **Async Code**: Ensure async paths are tested with `tokio-test`
-2. **Error Recovery**: Test error recovery scenarios
-3. **Platform-Specific Code**: Test OS-specific code paths
-4. **Optimization Paths**: Test performance optimizations
+## Debugging failures
 
-### Monitoring Coverage
-1. **Automated Reports**: Coverage reports generated with each test run
-2. **Threshold Checking**: Scripts check for >90% coverage goal
-3. **CI Integration**: Coverage measurement in continuous integration
-4. **Trend Tracking**: Monitor coverage changes over time
+Show captured test output and a backtrace:
 
-## Best Practices
+```bash
+RUST_BACKTRACE=1 \
+  cargo test --locked -p gguf-rs-lib failing_test_name -- --nocapture
+```
 
-### Test Organization
-- One test file per module
-- Logical grouping of related tests
-- Clear, descriptive test names
-- Comprehensive documentation
+Useful isolation order:
 
-### Test Quality
-- **Independence**: Tests don't depend on each other
-- **Repeatability**: Tests produce consistent results
-- **Speed**: Tests run quickly for rapid feedback
-- **Clarity**: Tests are easy to understand and maintain
+1. reproduce the smallest test target and feature set;
+2. run the same command with the declared minimum Rust toolchain;
+3. check whether the input uses an unsupported version, byte order, alignment,
+   or tensor ID;
+4. distinguish descriptor parsing from payload loading;
+5. retain a minimized generated fixture or Proptest seed with the fix.
 
-### Maintenance
-- **Regular Updates**: Keep tests updated with code changes
-- **Coverage Monitoring**: Regular coverage analysis
-- **Performance Testing**: Ensure tests don't become too slow
-- **Documentation**: Keep testing guide updated
+## What each layer proves
 
-## Troubleshooting
+| Layer | Evidence |
+| --- | --- |
+| Unit tests | Local invariants and error branches |
+| Integration tests | Reader/writer workflows across modules |
+| Property tests | Invariants over generated input spaces |
+| Doctests | Public snippets compile and behave as documented |
+| Example build/run | Repository examples use the current API |
+| Feature checks | Supported conditional-compilation paths compile and alloc-only APIs execute |
+| Package check | Published crate contents are intentional |
+| Independent GGUF reader | Cross-implementation interoperability |
 
-### Common Issues
-1. **Slow Tests**: Use `cargo test --release` for performance tests
-2. **Flaky Tests**: Check for timing dependencies and race conditions
-3. **Coverage Gaps**: Use coverage reports to identify untested code
-4. **Memory Issues**: Monitor memory usage in large file tests
-
-### Debug Tools
-- **Test Output**: Use `-- --nocapture` for detailed test output
-- **Selective Testing**: Run specific test patterns
-- **Timing**: Use `--time-threshold` to identify slow tests
-- **Parallel Control**: Use `--test-threads` to control parallelism
-
-## Future Improvements
-
-### Planned Enhancements
-1. **Benchmark Tests**: Performance regression testing
-2. **Fuzz Testing**: Random input fuzzing for robustness
-3. **Cross-Platform Testing**: Ensure compatibility across platforms
-4. **Memory Safety**: Additional memory leak detection
-5. **Load Testing**: Stress testing with very large files
-
-This comprehensive testing infrastructure ensures high code quality, reliability, and maintainability of the GGUF library while achieving the >90% coverage goal.
+No single layer establishes cryptographic authenticity or safe model execution.

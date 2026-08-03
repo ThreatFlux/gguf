@@ -1,6 +1,7 @@
-//! Async I/O support for GGUF files
+//! Header-only async preview support for GGUF files.
 //!
-//! This module provides async variants of GGUF operations using Tokio.
+//! The current API validates only the eight-byte magic/version prefix. Use the
+//! synchronous reader for metadata, tensor descriptors, and payloads.
 
 #[cfg(feature = "async")]
 use crate::{
@@ -13,17 +14,23 @@ use crate::{
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-/// Async GGUF file operations
+/// Header-only result from asynchronously probing a GGUF prefix.
 #[cfg(feature = "async")]
 pub struct AsyncGGUFFile {
+    /// Validated GGUF format version.
     pub version: u32,
+    /// Always empty in the preview API; metadata is not parsed.
     pub metadata: Metadata,
+    /// Always empty in the preview API; tensor descriptors are not parsed.
     pub tensors: Vec<crate::tensor::TensorInfo>,
 }
 
 #[cfg(feature = "async")]
 impl AsyncGGUFFile {
-    /// Async version of reading a GGUF file
+    /// Validate a GGUF magic/version prefix asynchronously.
+    ///
+    /// This is not a complete GGUF parse. The returned metadata and tensor lists
+    /// remain empty.
     pub async fn read_async<R: AsyncRead + Unpin>(mut reader: R) -> Result<Self> {
         // Read magic number
         let mut magic_bytes = [0u8; 4];
@@ -43,13 +50,10 @@ impl AsyncGGUFFile {
             return Err(GGUFError::UnsupportedVersion(version));
         }
 
-        // TODO: Implement full async GGUF parsing
-        // This is a stub implementation that will be expanded
-
         Ok(Self { version, metadata: Metadata::new(), tensors: Vec::new() })
     }
 
-    /// Read a GGUF file from a file path asynchronously
+    /// Validate a file's GGUF magic/version prefix asynchronously.
     pub async fn read_file_async<P: AsRef<std::path::Path>>(path: P) -> Result<Self> {
         let file = tokio::fs::File::open(path).await?;
         Self::read_async(file).await
