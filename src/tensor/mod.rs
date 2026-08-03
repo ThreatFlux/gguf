@@ -1,7 +1,8 @@
-//! Tensor data structures and quantization formats
+//! Tensor descriptors, raw storage, shapes, and quantization geometry
 //!
-//! This module provides comprehensive support for all GGUF tensor types,
-//! including quantized formats and tensor operations.
+//! Recognized quantized formats expose exact raw block geometry, but this crate
+//! does not quantize, dequantize, or execute tensors. See the format-support
+//! guide for the current type registry and payload boundaries.
 
 pub mod data;
 pub mod info;

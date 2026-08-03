@@ -1,103 +1,74 @@
-.PHONY: all build test bench check fmt lint clean doc audit
+.PHONY: all build release check fmt format lint test test-features doc examples \
+	docs-check package-check coverage audit clean help
 
-# Default target
-all: fmt check test
+CARGO ?= cargo
 
-# Build the project
+all: check
+
 build:
-	@echo "Building project..."
-	@cargo build --all-features
+	$(CARGO) build --locked --workspace --all-features
 
-# Build in release mode
 release:
-	@echo "Building release..."
-	@cargo build --release --all-features
+	$(CARGO) build --locked --workspace --release --all-features
 
-# Run tests
-test:
-	@echo "Running tests..."
-	@cargo test --all-features
+check: fmt lint test test-features doc docs-check package-check
 
-# Run benchmarks
-bench:
-	@echo "Running benchmarks..."
-	@cargo bench --all-features
-
-# Check code (compile without building)
-check:
-	@echo "Checking code..."
-	@cargo check --all-features
-
-# Format code
 fmt:
-	@echo "Formatting code..."
-	@cargo fmt --all
+	$(CARGO) fmt --all -- --check
 
-# Lint with clippy
+format:
+	$(CARGO) fmt --all
+
 lint:
-	@echo "Running clippy..."
-	@cargo clippy --all-targets --all-features -- -D warnings
+	$(CARGO) clippy --locked --workspace --all-targets --all-features -- -D warnings
 
-# Clean build artifacts
-clean:
-	@echo "Cleaning..."
-	@cargo clean
+test:
+	$(CARGO) test --locked --workspace --all-features
 
-# Generate documentation
-doc:
-	@echo "Generating documentation..."
-	@cargo doc --all-features --no-deps --open
-
-# Security audit
-audit:
-	@echo "Running security audit..."
-	@cargo audit
-
-# Run all checks (for CI)
-ci: fmt lint test doc
-
-# Install development dependencies
-setup:
-	@echo "Installing development dependencies..."
-	@rustup component add rustfmt clippy
-	@cargo install cargo-audit
-
-# Test with different feature combinations
 test-features:
-	@echo "Testing with no features..."
-	@cargo test --no-default-features
-	@echo "Testing with default features..."
-	@cargo test
-	@echo "Testing with all features..."
-	@cargo test --all-features
+	$(CARGO) check --locked -p gguf-rs-lib
+	$(CARGO) check --locked -p gguf-rs-lib --all-features
+	$(CARGO) check --locked -p gguf-rs-lib --no-default-features --features alloc
+	$(CARGO) check --locked -p gguf-cli --all-features
 
-# Run examples
+doc:
+	$(CARGO) test --locked -p gguf-rs-lib --doc --all-features
+	$(CARGO) doc --locked --workspace --all-features --no-deps
+
 examples:
-	@echo "Running examples..."
-	@cargo run --example create_test_gguf
-	@cargo run --example inspect_gguf test_model.gguf || true
+	$(CARGO) run --locked --example roundtrip_test
+	$(CARGO) run --locked --example create_test_gguf
+	$(CARGO) run --locked --example inspect_gguf -- target/examples/test-model.gguf
 
-# Check MSRV (Minimum Supported Rust Version)
-msrv:
-	@echo "Checking MSRV (1.95.0)..."
-	@cargo +1.95.0 check --all-features
+docs-check:
+	python3 scripts/check_docs.py
+
+package-check:
+	scripts/check_package.sh
+
+coverage:
+	scripts/run_tests_with_coverage.sh
+
+audit:
+	$(CARGO) audit --locked
+
+clean:
+	$(CARGO) clean
 
 help:
-	@echo "Available targets:"
-	@echo "  all         - Format, check, and test (default)"
-	@echo "  build       - Build the project"
-	@echo "  release     - Build in release mode"
-	@echo "  test        - Run tests"
-	@echo "  bench       - Run benchmarks"
-	@echo "  check       - Check code compilation"
-	@echo "  fmt         - Format code"
-	@echo "  lint        - Run clippy linter"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  doc         - Generate documentation"
-	@echo "  audit       - Run security audit"
-	@echo "  ci          - Run all CI checks"
-	@echo "  setup       - Install development dependencies"
-	@echo "  test-features - Test with different feature combinations"
-	@echo "  examples    - Run examples"
-	@echo "  msrv        - Check minimum supported Rust version"
-	@echo "  help        - Show this help message"
+	@echo "Targets:"
+	@echo "  check          full contributor checks"
+	@echo "  build          build the workspace"
+	@echo "  release        build the release profile"
+	@echo "  fmt            check formatting"
+	@echo "  format         apply formatting"
+	@echo "  lint           run Clippy with warnings denied"
+	@echo "  test           run workspace tests"
+	@echo "  test-features  check supported feature combinations"
+	@echo "  doc            test and build API documentation"
+	@echo "  examples       run self-contained examples"
+	@echo "  docs-check     validate Markdown links and stale patterns"
+	@echo "  package-check  verify published crate contents"
+	@echo "  coverage       write reports below target/coverage"
+	@echo "  audit          run cargo-audit (must be installed)"
+	@echo "  clean          remove Cargo build output"

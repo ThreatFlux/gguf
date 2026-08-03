@@ -2,203 +2,228 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - main
   pull_request:
-    branches: [ main, develop ]
+    branches:
+      - main
   workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  RUSTFLAGS: -D warnings
+  RUSTFLAGS: "-D warnings"
+  RUSTDOCFLAGS: "-D warnings"
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }} with Rust ${{ matrix.rust }}
+  quality:
+    name: Quality (Rust 1.97.1)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.97.1
+          components: rustfmt, clippy
+
+      - name: Cache Cargo data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+
+      - name: Run tests
+        run: cargo test --locked --workspace --all-features --verbose
+
+      - name: Test library documentation
+        run: cargo test --locked -p gguf-rs-lib --doc --all-features
+
+      - name: Build documentation
+        run: cargo doc --locked --workspace --all-features --no-deps
+
+      - name: Build examples
+        run: cargo build --locked --workspace --examples --all-features
+
+      - name: Check documentation contracts
+        run: python3 scripts/check_docs.py
+
+      - name: Check package contents
+        run: bash scripts/check_package.sh
+
+      - name: Verify library package
+        run: cargo package --locked -p gguf-rs-lib
+
+  feature-sets:
+    name: Feature Sets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.97.1
+
+      - name: Cache Cargo data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-features-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check default library features
+        run: cargo check --locked -p gguf-rs-lib --all-targets
+
+      - name: Check alloc-only library
+        run: cargo check --locked -p gguf-rs-lib --lib --no-default-features --features alloc
+
+      - name: Test alloc-only public API
+        run: cargo test --locked -p gguf-rs-lib --no-default-features --features alloc --test alloc_only
+
+      - name: Check async library
+        run: cargo check --locked -p gguf-rs-lib --lib --no-default-features --features async
+
+      - name: Check memory-mapped library
+        run: cargo check --locked -p gguf-rs-lib --lib --no-default-features --features mmap
+
+      - name: Check all library features
+        run: cargo check --locked -p gguf-rs-lib --all-targets --all-features
+
+      - name: Check minimal CLI
+        run: cargo check --locked -p gguf-cli --no-default-features
+
+      - name: Check all CLI features
+        run: cargo check --locked -p gguf-cli --all-features
+
+  msrv:
+    name: Minimum Supported Rust (1.87.0)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install minimum supported Rust
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.87.0
+
+      - name: Cache Cargo data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-msrv-1.87.0-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check workspace at MSRV
+        run: cargo check --locked --workspace --all-targets --all-features
+
+      - name: Test alloc-only public API at MSRV
+        run: cargo test --locked -p gguf-rs-lib --no-default-features --features alloc --test alloc_only
+
+  compatibility:
+    name: Compatibility (${{ matrix.os }}, Rust ${{ matrix.rust }})
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta, '1.95.0']  # 1.95.0 is our MSRV
         include:
+          - os: windows-latest
+            rust: 1.97.1
+            experimental: false
+          - os: macos-latest
+            rust: 1.97.1
+            experimental: false
           - os: ubuntu-latest
-            rust: nightly
+            rust: beta
+            experimental: true
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Free Disk Space (Ubuntu only)
-        if: runner.os == 'Linux'
-        uses: jlumbroso/free-disk-space@main
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+          persist-credentials: false
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: ${{ matrix.rust }}
-          components: rustfmt, clippy
 
-      - name: Cache cargo registry
-        uses: actions/cache@v4
+      - name: Cache Cargo data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cargo/registry
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Cache cargo index
-        uses: actions/cache@v4
-        with:
-          path: ~/.cargo/git
-          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check workspace
+        run: cargo check --locked --workspace --all-targets --all-features
 
-      - name: Cache cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Check formatting
-        if: matrix.rust == 'stable'
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        if: matrix.rust == 'stable'
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Build
-        run: cargo build --verbose --all-features
-
-      - name: Build (no default features)
-        run: cargo build --verbose --no-default-features --features alloc
-
-      - name: Build (with async)
-        run: cargo build --verbose --no-default-features --features alloc,async
-
-      - name: Build (with mmap)
-        run: cargo build --verbose --no-default-features --features alloc,mmap
-
-      - name: Run tests
-        run: cargo test --verbose --all-features
-
-      - name: Run tests (no default features)
-        run: cargo test --lib --verbose --no-default-features --features alloc
-
-      - name: Build examples
-        run: cargo build --examples --features std
-
-      - name: Build examples (no-std)
-        run: cargo build --examples --no-default-features --features alloc
-
-      - name: Test documentation
-        run: cargo test --doc --all-features
-
-      - name: Check CLI tool
-        run: cargo check --package gguf-cli --all-features
+      - name: Run workspace tests
+        run: cargo test --locked --workspace --all-features
 
   coverage:
     name: Code Coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.97.1
           components: llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: cargo-llvm-cov@0.8.7
 
       - name: Generate coverage
-        run: cargo llvm-cov --features std --lib --lcov --output-path lcov.info
+        run: cargo llvm-cov --locked --workspace --all-features --lcov --output-path lcov.info
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
+          version: v11.3.1
           files: lcov.info
-          fail_ci_if_error: false
-
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.95.0
-
-      - name: Check documentation
-        run: cargo doc --no-deps --all-features --document-private-items
-
-      - name: Test documentation examples
-        run: cargo test --doc --all-features
-
-  feature-combinations:
-    name: Feature Combinations
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.95.0
-
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-
-      - name: Check feature combinations
-        run: cargo hack check --feature-powerset --no-dev-deps --exclude-no-default-features
-
-  benchmark:
-    name: Benchmarks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: 1.95.0
-
-      - name: Run benchmarks
-        run: cargo bench --no-run --all-features
-
-  miri:
-    name: Miri Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust nightly and miri
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: miri
-
-      - name: Run miri tests
-        run: |
-          cargo miri setup
-          cargo miri test --features std --lib
-        env:
-          MIRIFLAGS: -Zmiri-disable-isolation
-
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
+          fail_ci_if_error: true

@@ -52,7 +52,7 @@ mod file_reader_tests {
         data.extend_from_slice(&1u32.to_le_bytes()); // dimensions
         data.extend_from_slice(&20u64.to_le_bytes()); // dim 0
         data.extend_from_slice(&(GGUFTensorType::I32 as u32).to_le_bytes()); // tensor type
-        data.extend_from_slice(&200u64.to_le_bytes()); // offset
+        data.extend_from_slice(&224u64.to_le_bytes()); // aligned relative offset
 
         // Align to 32 bytes
         while data.len() % 32 != 0 {
@@ -64,6 +64,8 @@ mod file_reader_tests {
         for i in 0..50 {
             data.extend_from_slice(&(i as f32).to_le_bytes());
         }
+
+        data.extend_from_slice(&[0u8; 24]); // align tensor2 to 32 bytes
 
         // tensor2: 20 I32 values = 80 bytes
         for i in 0..20i32 {
@@ -225,7 +227,7 @@ fn create_test_gguf_data_two_tensors() -> Vec<u8> {
     data.extend_from_slice(&1u32.to_le_bytes()); // dimensions
     data.extend_from_slice(&20u64.to_le_bytes()); // dim 0
     data.extend_from_slice(&(GGUFTensorType::I32 as u32).to_le_bytes()); // tensor type
-    data.extend_from_slice(&200u64.to_le_bytes()); // offset
+    data.extend_from_slice(&224u64.to_le_bytes()); // aligned relative offset
 
     // Align to 32 bytes
     while data.len() % 32 != 0 {
@@ -237,6 +239,8 @@ fn create_test_gguf_data_two_tensors() -> Vec<u8> {
     for i in 0..50 {
         data.extend_from_slice(&(i as f32).to_le_bytes());
     }
+
+    data.extend_from_slice(&[0u8; 24]); // align tensor2 to 32 bytes
 
     // tensor2: 20 I32 values = 80 bytes
     for i in 0..20i32 {

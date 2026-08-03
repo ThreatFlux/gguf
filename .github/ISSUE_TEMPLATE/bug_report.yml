@@ -1,0 +1,77 @@
+name: Bug report
+description: Report reproducible incorrect behavior in gguf-rs-lib or gguf-cli.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve GGUF. Do not include private model data,
+        credentials, or proprietary GGUF files in this public issue.
+
+        Report vulnerabilities privately through
+        https://github.com/ThreatFlux/gguf/security/advisories/new.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Include the crate version or full Git commit you tested.
+      placeholder: gguf-rs-lib 0.3.0, 0.2.5, or commit abc1234
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, architecture, and `rustc --version --verbose`.
+      placeholder: Ubuntu 24.04 x86_64, rustc 1.97.1
+    validations:
+      required: true
+
+  - type: input
+    id: features
+    attributes:
+      label: Enabled features
+      description: List default, disabled, and explicitly enabled Cargo features.
+      placeholder: default-features = false, features = ["alloc"]
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: Describe what happened and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide the smallest code sample or repository that reproduces the issue.
+      render: rust
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Error output or backtrace
+      description: Set `RUST_BACKTRACE=1` when a panic is involved. Redact sensitive paths or data.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I can reproduce this with a supported Rust toolchain.
+          required: true
+        - label: This report contains no secrets or proprietary model data.
+          required: true

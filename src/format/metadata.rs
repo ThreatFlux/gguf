@@ -30,6 +30,37 @@ use alloc::{
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 use hashbrown::HashMap;
 
+/// Variable-sized metadata is grown in bounded increments rather than trusting
+/// attacker-controlled `u64` length fields as allocation sizes.
+#[cfg(feature = "std")]
+const METADATA_BYTE_READ_CHUNK: usize = 8 * 1024;
+#[cfg(feature = "std")]
+const METADATA_ARRAY_RESERVE_CHUNK: usize = 1024;
+
+#[cfg(feature = "std")]
+#[derive(Debug)]
+struct MetadataDecodeBudget {
+    remaining: usize,
+    limit: usize,
+}
+
+#[cfg(feature = "std")]
+impl MetadataDecodeBudget {
+    fn new(limit: usize) -> Self {
+        Self { remaining: limit, limit }
+    }
+
+    fn charge(&mut self, bytes: usize, description: &str) -> Result<()> {
+        self.remaining = self.remaining.checked_sub(bytes).ok_or_else(|| {
+            GGUFError::InvalidMetadata(format!(
+                "Decoded metadata allocation exceeds budget of {} bytes while reading {}",
+                self.limit, description
+            ))
+        })?;
+        Ok(())
+    }
+}
+
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]
 use core::{fmt, slice};
@@ -125,26 +156,47 @@ impl MetadataValue {
 
     /// Calculate the serialized size of this value
     pub fn serialized_size(&self) -> usize {
+        self.checked_serialized_size().unwrap_or(usize::MAX)
+    }
+
+    /// Calculate the serialized size without overflowing.
+    pub fn checked_serialized_size(&self) -> Option<usize> {
         match self {
-            MetadataValue::U8(_) => 1,
-            MetadataValue::I8(_) => 1,
-            MetadataValue::U16(_) => 2,
-            MetadataValue::I16(_) => 2,
-            MetadataValue::U32(_) => 4,
-            MetadataValue::I32(_) => 4,
-            MetadataValue::F32(_) => 4,
-            MetadataValue::Bool(_) => 1,
-            MetadataValue::String(s) => 8 + s.len(), // length prefix + string data
-            MetadataValue::Array(arr) => arr.as_ref().serialized_size(),
-            MetadataValue::U64(_) => 8,
-            MetadataValue::I64(_) => 8,
-            MetadataValue::F64(_) => 8,
+            MetadataValue::U8(_) | MetadataValue::I8(_) | MetadataValue::Bool(_) => Some(1),
+            MetadataValue::U16(_) | MetadataValue::I16(_) => Some(2),
+            MetadataValue::U32(_) | MetadataValue::I32(_) | MetadataValue::F32(_) => Some(4),
+            MetadataValue::String(s) => 8usize.checked_add(s.len()),
+            MetadataValue::Array(arr) => arr.as_ref().checked_serialized_size(),
+            MetadataValue::U64(_) | MetadataValue::I64(_) | MetadataValue::F64(_) => Some(8),
+        }
+    }
+
+    /// Validate length, type, and nesting invariants before serialization.
+    pub fn validate(&self) -> Result<()> {
+        self.validate_at_depth(0)
+    }
+
+    fn validate_at_depth(&self, depth: usize) -> Result<()> {
+        match self {
+            MetadataValue::Array(array) => array.validate_at_depth(depth + 1),
+            _ => Ok(()),
         }
     }
 
     /// Read a metadata value from a reader
     #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R, value_type: GGUFValueType) -> Result<Self> {
+        let mut budget = MetadataDecodeBudget::new(GGUF_MAX_METADATA_DECODED_SIZE);
+        Self::read_from_at_depth(reader, value_type, 0, &mut budget)
+    }
+
+    #[cfg(feature = "std")]
+    fn read_from_at_depth<R: Read>(
+        reader: &mut R,
+        value_type: GGUFValueType,
+        depth: usize,
+        budget: &mut MetadataDecodeBudget,
+    ) -> Result<Self> {
         let value = match value_type {
             GGUFValueType::U8 => MetadataValue::U8(read_u8(reader)?),
             GGUFValueType::I8 => MetadataValue::I8(read_i8(reader)?),
@@ -153,20 +205,32 @@ impl MetadataValue {
             GGUFValueType::U32 => MetadataValue::U32(read_u32(reader)?),
             GGUFValueType::I32 => MetadataValue::I32(read_i32(reader)?),
             GGUFValueType::F32 => MetadataValue::F32(read_f32(reader)?),
-            GGUFValueType::Bool => MetadataValue::Bool(read_u8(reader)? != 0),
-            GGUFValueType::String => {
-                let len = read_u64(reader)? as usize;
-                if len > GGUF_MAX_STRING_LENGTH {
-                    return Err(GGUFError::Format(format!("String too long: {} bytes", len)));
+            GGUFValueType::Bool => match read_u8(reader)? {
+                0 => MetadataValue::Bool(false),
+                1 => MetadataValue::Bool(true),
+                value => {
+                    return Err(GGUFError::InvalidMetadata(format!(
+                        "Invalid boolean value: {} (expected 0 or 1)",
+                        value
+                    )));
                 }
-                let mut bytes = vec![0u8; len];
-                reader.read_exact(&mut bytes)?;
+            },
+            GGUFValueType::String => {
+                let len = read_u64(reader)?;
+                let bytes = read_variable_bytes(reader, len, "string", budget)?;
                 let string = String::from_utf8(bytes)
                     .map_err(|e| GGUFError::Format(format!("Invalid UTF-8 string: {}", e)))?;
                 MetadataValue::String(string)
             }
             GGUFValueType::Array => {
-                let array = MetadataArray::read_from(reader)?;
+                if depth >= GGUF_MAX_METADATA_NESTING_DEPTH {
+                    return Err(GGUFError::InvalidMetadata(format!(
+                        "Metadata array nesting exceeds limit of {}",
+                        GGUF_MAX_METADATA_NESTING_DEPTH
+                    )));
+                }
+                budget.charge(core::mem::size_of::<MetadataArray>(), "nested array")?;
+                let array = MetadataArray::read_from_at_depth(reader, depth + 1, budget)?;
                 MetadataValue::Array(Box::new(array))
             }
             GGUFValueType::U64 => MetadataValue::U64(read_u64(reader)?),
@@ -180,6 +244,7 @@ impl MetadataValue {
     /// Write a metadata value to a writer  
     #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
+        self.validate()?;
         match self {
             MetadataValue::U8(v) => write_u8(writer, *v)?,
             MetadataValue::I8(v) => write_i8(writer, *v)?,
@@ -190,7 +255,12 @@ impl MetadataValue {
             MetadataValue::F32(v) => write_f32(writer, *v)?,
             MetadataValue::Bool(v) => write_u8(writer, if *v { 1 } else { 0 })?,
             MetadataValue::String(s) => {
-                write_u64(writer, s.len() as u64)?;
+                let length = u64::try_from(s.len()).map_err(|_| {
+                    GGUFError::InvalidMetadata(
+                        "String length does not fit the GGUF u64 length field".to_string(),
+                    )
+                })?;
+                write_u64(writer, length)?;
                 writer.write_all(s.as_bytes())?;
             }
             MetadataValue::Array(arr) => arr.as_ref().write_to(writer)?,
@@ -280,12 +350,15 @@ impl MetadataArray {
             }
         }
 
-        let length = values.len() as u64;
-        if length > GGUF_MAX_ARRAY_LENGTH as u64 {
-            return Err(GGUFError::InvalidMetadata(format!("Array too long: {} elements", length)));
-        }
+        let length = u64::try_from(values.len()).map_err(|_| {
+            GGUFError::InvalidMetadata(
+                "Array length does not fit the GGUF u64 length field".to_string(),
+            )
+        })?;
 
-        Ok(Self { element_type, length, values })
+        let array = Self { element_type, length, values };
+        array.validate()?;
+        Ok(array)
     }
 
     #[cfg(not(any(feature = "std", feature = "alloc")))]
@@ -295,29 +368,109 @@ impl MetadataArray {
 
     /// Calculate the serialized size of this array
     pub fn serialized_size(&self) -> usize {
-        // Type (4 bytes) + length (8 bytes) + elements
-        let mut size = 4 + 8;
-        for value in &self.values {
-            size += value.serialized_size();
+        self.checked_serialized_size().unwrap_or(usize::MAX)
+    }
+
+    /// Calculate the serialized array size without overflowing.
+    pub fn checked_serialized_size(&self) -> Option<usize> {
+        self.values
+            .iter()
+            .try_fold(12usize, |size, value| size.checked_add(value.checked_serialized_size()?))
+    }
+
+    /// Validate the array's length, homogeneous element type, and nesting depth.
+    pub fn validate(&self) -> Result<()> {
+        self.validate_at_depth(1)
+    }
+
+    fn validate_at_depth(&self, depth: usize) -> Result<()> {
+        if depth > GGUF_MAX_METADATA_NESTING_DEPTH {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "Metadata array nesting exceeds limit of {}",
+                GGUF_MAX_METADATA_NESTING_DEPTH
+            )));
         }
-        size
+        let actual_length = u64::try_from(self.values.len()).map_err(|_| {
+            GGUFError::InvalidMetadata(
+                "Array length does not fit the GGUF u64 length field".to_string(),
+            )
+        })?;
+        if self.length != actual_length {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "Array length field {} does not match {} values",
+                self.length,
+                self.values.len()
+            )));
+        }
+        for value in &self.values {
+            if value.value_type() != self.element_type {
+                return Err(GGUFError::InvalidMetadata(format!(
+                    "Array element type mismatch: expected {}, got {}",
+                    self.element_type,
+                    value.value_type()
+                )));
+            }
+            value.validate_at_depth(depth)?;
+        }
+        Ok(())
     }
 
     /// Read a metadata array from a reader
     #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
+        let mut budget = MetadataDecodeBudget::new(GGUF_MAX_METADATA_DECODED_SIZE);
+        Self::read_from_at_depth(reader, 1, &mut budget)
+    }
+
+    #[cfg(feature = "std")]
+    fn read_from_at_depth<R: Read>(
+        reader: &mut R,
+        depth: usize,
+        budget: &mut MetadataDecodeBudget,
+    ) -> Result<Self> {
+        if depth > GGUF_MAX_METADATA_NESTING_DEPTH {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "Metadata array nesting exceeds limit of {}",
+                GGUF_MAX_METADATA_NESTING_DEPTH
+            )));
+        }
         let element_type_raw = read_u32(reader)?;
         let element_type = GGUFValueType::from_u32(element_type_raw)?;
         let length = read_u64(reader)?;
 
-        if length > GGUF_MAX_ARRAY_LENGTH as u64 {
-            return Err(GGUFError::InvalidMetadata(format!("Array too long: {} elements", length)));
-        }
-
-        let mut values = Vec::with_capacity(length as usize);
-        for _ in 0..length {
-            let value = MetadataValue::read_from(reader, element_type)?;
-            values.push(value);
+        let platform_length = usize::try_from(length).map_err(|_| {
+            GGUFError::InvalidMetadata("Array length does not fit usize".to_string())
+        })?;
+        let decoded_slots = platform_length
+            .checked_mul(core::mem::size_of::<MetadataValue>())
+            .ok_or_else(|| {
+                GGUFError::InvalidMetadata(
+                    "Decoded metadata array allocation overflows usize".to_string(),
+                )
+            })?;
+        budget.charge(decoded_slots, "array elements")?;
+        let mut values = Vec::new();
+        while values.len() < platform_length {
+            if values.len() == values.capacity() {
+                let remaining = platform_length - values.len();
+                let additional = values.capacity().max(METADATA_ARRAY_RESERVE_CHUNK).min(remaining);
+                values.try_reserve_exact(additional).map_err(|_| {
+                    GGUFError::InvalidMetadata(format!(
+                        "Unable to allocate storage for metadata array of {} elements",
+                        length
+                    ))
+                })?;
+            }
+            let batch_end = values
+                .len()
+                .saturating_add(
+                    (values.capacity() - values.len()).min(METADATA_ARRAY_RESERVE_CHUNK),
+                )
+                .min(platform_length);
+            while values.len() < batch_end {
+                let value = MetadataValue::read_from_at_depth(reader, element_type, depth, budget)?;
+                values.push(value);
+            }
         }
 
         Ok(Self { element_type, length, values })
@@ -326,6 +479,7 @@ impl MetadataArray {
     /// Write a metadata array to a writer
     #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
+        self.validate()?;
         write_u32(writer, self.element_type as u32)?;
         write_u64(writer, self.length)?;
 
@@ -361,6 +515,36 @@ impl MetadataArray {
     pub fn iter(&self) -> slice::Iter<'_, MetadataValue> {
         self.values.iter()
     }
+}
+
+#[cfg(feature = "std")]
+fn read_variable_bytes<R: Read>(
+    reader: &mut R,
+    length: u64,
+    kind: &str,
+    budget: &mut MetadataDecodeBudget,
+) -> Result<Vec<u8>> {
+    let length = usize::try_from(length)
+        .map_err(|_| GGUFError::Format(format!("{} length does not fit usize", kind)))?;
+    budget.charge(length, kind)?;
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; METADATA_BYTE_READ_CHUNK];
+    while bytes.len() < length {
+        if bytes.len() == bytes.capacity() {
+            let remaining = length - bytes.len();
+            let additional = bytes.capacity().max(METADATA_BYTE_READ_CHUNK).min(remaining);
+            bytes.try_reserve_exact(additional).map_err(|_| {
+                GGUFError::InvalidMetadata(format!(
+                    "Unable to allocate storage for metadata {} of {} bytes",
+                    kind, length
+                ))
+            })?;
+        }
+        let chunk_len = (length - bytes.len()).min(chunk.len());
+        reader.read_exact(&mut chunk[..chunk_len])?;
+        bytes.extend_from_slice(&chunk[..chunk_len]);
+    }
+    Ok(bytes)
 }
 
 #[cfg(any(feature = "std", feature = "alloc"))]
@@ -432,6 +616,77 @@ impl Metadata {
     pub fn values(&self) -> hashbrown::hash_map::Values<'_, String, MetadataValue> {
         self.data.values()
     }
+
+    /// Validate metadata invariants before writing or using format-level settings.
+    pub fn validate(&self) -> Result<()> {
+        if self.data.len() as u64 > GGUF_MAX_METADATA_COUNT {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "Too many metadata entries: {} exceeds limit of {}",
+                self.data.len(),
+                GGUF_MAX_METADATA_COUNT
+            )));
+        }
+        for (key, value) in &self.data {
+            if key.is_empty() {
+                return Err(GGUFError::InvalidMetadata("Metadata key cannot be empty".to_string()));
+            }
+            if key.len() > GGUF_MAX_METADATA_KEY_LENGTH {
+                return Err(GGUFError::InvalidMetadata(format!(
+                    "Metadata key is {} bytes; maximum is {}",
+                    key.len(),
+                    GGUF_MAX_METADATA_KEY_LENGTH
+                )));
+            }
+            if !is_valid_metadata_key(key) {
+                return Err(GGUFError::InvalidMetadata(format!(
+                    "Metadata key '{}' must be dot-separated lower_snake_case ASCII",
+                    key
+                )));
+            }
+            value.validate()?;
+        }
+        self.tensor_alignment()?;
+        Ok(())
+    }
+
+    /// Return the global tensor alignment declared by `general.alignment`.
+    pub fn tensor_alignment(&self) -> Result<usize> {
+        let alignment = match self.get("general.alignment") {
+            None => GGUF_DEFAULT_ALIGNMENT,
+            Some(MetadataValue::U32(value)) => usize::try_from(*value).map_err(|_| {
+                GGUFError::InvalidMetadata(
+                    "general.alignment does not fit this platform".to_string(),
+                )
+            })?,
+            Some(value) => {
+                return Err(GGUFError::InvalidMetadata(format!(
+                    "general.alignment must be u32, got {}",
+                    value.value_type()
+                )));
+            }
+        };
+        if alignment == 0 || alignment % 8 != 0 {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "general.alignment must be a non-zero multiple of 8, got {}",
+                alignment
+            )));
+        }
+        Ok(alignment)
+    }
+}
+
+#[cfg(any(feature = "std", feature = "alloc"))]
+fn is_valid_metadata_key(key: &str) -> bool {
+    key.is_ascii()
+        && key.split('.').all(|component| {
+            !component.is_empty()
+                && component.split('_').all(|word| {
+                    !word.is_empty()
+                        && word
+                            .bytes()
+                            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                })
+        })
 }
 
 #[cfg(not(any(feature = "std", feature = "alloc")))]
@@ -477,37 +732,129 @@ impl Metadata {
     /// Read metadata from a reader
     #[cfg(feature = "std")]
     pub fn read_from<R: Read>(reader: &mut R, count: u64) -> Result<Self> {
-        let mut data = HashMap::with_capacity(count as usize);
+        let mut budget = MetadataDecodeBudget::new(GGUF_MAX_METADATA_DECODED_SIZE);
+        Self::read_from_with_decode_budget(reader, count, &mut budget)
+    }
+
+    #[cfg(feature = "std")]
+    fn read_from_with_decode_budget<R: Read>(
+        reader: &mut R,
+        count: u64,
+        budget: &mut MetadataDecodeBudget,
+    ) -> Result<Self> {
+        if count > GGUF_MAX_METADATA_COUNT {
+            return Err(GGUFError::InvalidMetadata(format!(
+                "Metadata count {} exceeds limit of {}",
+                count, GGUF_MAX_METADATA_COUNT
+            )));
+        }
+        let capacity = usize::try_from(count).map_err(|_| {
+            GGUFError::InvalidMetadata("Metadata count does not fit usize".to_string())
+        })?;
+        let decoded_entries = capacity
+            .checked_mul(
+                core::mem::size_of::<(String, MetadataValue)>()
+                    .saturating_add(2 * core::mem::size_of::<usize>()),
+            )
+            .ok_or_else(|| {
+                GGUFError::InvalidMetadata(
+                    "Decoded metadata entry allocation overflows usize".to_string(),
+                )
+            })?;
+        budget.charge(decoded_entries, "metadata entries")?;
+        let mut data = HashMap::new();
+        data.try_reserve(capacity).map_err(|_| {
+            GGUFError::InvalidMetadata("Unable to allocate metadata map".to_string())
+        })?;
 
         for _ in 0..count {
             // Read key
-            let key_len = read_u64(reader)? as usize;
-            if key_len > GGUF_MAX_STRING_LENGTH {
+            let key_len = read_u64(reader)?;
+            if key_len > GGUF_MAX_METADATA_KEY_LENGTH as u64 {
                 return Err(GGUFError::Format(format!("Metadata key too long: {} bytes", key_len)));
             }
+            let key_len = usize::try_from(key_len).map_err(|_| {
+                GGUFError::Format("Metadata key length does not fit usize".to_string())
+            })?;
+            budget.charge(key_len, "metadata key")?;
 
             let mut key_bytes = vec![0u8; key_len];
             reader.read_exact(&mut key_bytes)?;
             let key = String::from_utf8(key_bytes)
                 .map_err(|e| GGUFError::Format(format!("Invalid UTF-8 in metadata key: {}", e)))?;
+            if key.is_empty() {
+                return Err(GGUFError::InvalidMetadata("Metadata key cannot be empty".to_string()));
+            }
+            if data.contains_key(&key) {
+                return Err(GGUFError::InvalidMetadata(format!("Duplicate metadata key: {}", key)));
+            }
 
             // Read value type and value
             let value_type_raw = read_u32(reader)?;
             let value_type = GGUFValueType::from_u32(value_type_raw)?;
-            let value = MetadataValue::read_from(reader, value_type)?;
+            let value = MetadataValue::read_from_at_depth(reader, value_type, 0, budget)?;
 
             data.insert(key, value);
         }
 
-        Ok(Self { data })
+        let metadata = Self { data };
+        metadata.validate()?;
+        Ok(metadata)
+    }
+
+    /// Read metadata with a serialized-byte budget and the default decoded-allocation budget.
+    #[cfg(feature = "std")]
+    pub fn read_from_with_limit<R: Read>(
+        reader: &mut R,
+        count: u64,
+        max_bytes: usize,
+    ) -> Result<Self> {
+        Self::read_from_with_limits(reader, count, max_bytes, GGUF_MAX_METADATA_DECODED_SIZE)
+    }
+
+    /// Read metadata with independent serialized-byte and decoded-allocation budgets.
+    #[cfg(feature = "std")]
+    pub fn read_from_with_limits<R: Read>(
+        reader: &mut R,
+        count: u64,
+        max_bytes: usize,
+        max_decoded_bytes: usize,
+    ) -> Result<Self> {
+        let limit = u64::try_from(max_bytes).unwrap_or(u64::MAX);
+        let mut limited = reader.take(limit);
+        let mut budget = MetadataDecodeBudget::new(max_decoded_bytes);
+        match Self::read_from_with_decode_budget(&mut limited, count, &mut budget) {
+            Ok(metadata) => Ok(metadata),
+            Err(_) if limited.limit() == 0 => Err(GGUFError::InvalidMetadata(format!(
+                "Metadata exceeds byte limit of {}",
+                max_bytes
+            ))),
+            Err(error) => Err(error),
+        }
     }
 
     /// Write metadata to a writer
     #[cfg(feature = "std")]
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
-        for (key, value) in &self.data {
+        self.validate()?;
+        let mut entries = Vec::new();
+        entries.try_reserve_exact(self.data.len()).map_err(|_| {
+            GGUFError::InvalidMetadata(format!(
+                "Unable to allocate deterministic metadata index for {} entries",
+                self.data.len()
+            ))
+        })?;
+        entries.extend(self.data.iter());
+        entries.sort_unstable_by_key(|(key, _)| *key);
+        for (key, value) in entries {
             // Write key
-            write_u64(writer, key.len() as u64)?;
+            let key_len = u64::try_from(key.len()).map_err(|_| {
+                GGUFError::InvalidMetadata(format!(
+                    "Metadata key length does not fit the GGUF u64 length field: {} bytes",
+                    key.len()
+                ))
+            })?;
+            write_u64(writer, key_len)?;
             writer.write_all(key.as_bytes())?;
 
             // Write value type and value
@@ -520,14 +867,17 @@ impl Metadata {
 
     /// Calculate the serialized size of all metadata
     pub fn serialized_size(&self) -> usize {
-        let mut size = 0;
-        for (key, value) in &self.data {
-            size += 8; // key length
-            size += key.len(); // key data
-            size += 4; // value type
-            size += value.serialized_size(); // value data
-        }
-        size
+        self.checked_serialized_size().unwrap_or(usize::MAX)
+    }
+
+    /// Calculate the serialized metadata size without overflowing.
+    pub fn checked_serialized_size(&self) -> Option<usize> {
+        self.data.iter().try_fold(0usize, |size, (key, value)| {
+            size.checked_add(8)?
+                .checked_add(key.len())?
+                .checked_add(4)?
+                .checked_add(value.checked_serialized_size()?)
+        })
     }
 
     /// Get a string value by key
@@ -678,17 +1028,14 @@ mod tests {
     }
 
     #[test]
-    fn test_string_length_validation() {
-        // Test string that's too long
-        let long_string = "x".repeat(GGUF_MAX_STRING_LENGTH + 1);
-        let long_value = MetadataValue::String(long_string);
-
+    fn test_large_string_round_trip() {
+        let long_value = MetadataValue::String("x".repeat(128 * 1024));
         let mut buffer = Vec::new();
-        long_value.write_to(&mut buffer).unwrap(); // Writing should succeed
+        long_value.write_to(&mut buffer).unwrap();
 
-        let mut cursor = Cursor::new(buffer);
-        let result = MetadataValue::read_from(&mut cursor, GGUFValueType::String);
-        assert!(result.is_err()); // Reading should fail due to length check
+        let decoded =
+            MetadataValue::read_from(&mut Cursor::new(buffer), GGUFValueType::String).unwrap();
+        assert_eq!(decoded, long_value);
     }
 
     #[test]
@@ -706,5 +1053,98 @@ mod tests {
         assert_eq!(read_array.element_type, GGUFValueType::I32);
         assert_eq!(read_array.len(), 3);
         assert_eq!(read_array.get(2), Some(&MetadataValue::I32(42)));
+    }
+
+    #[test]
+    fn test_large_tokenizer_array_round_trip() {
+        let values = (0..128_000).map(MetadataValue::U32).collect();
+        let original = MetadataArray::new(GGUFValueType::U32, values).unwrap();
+
+        let mut buffer = Vec::new();
+        original.write_to(&mut buffer).unwrap();
+        let decoded = MetadataArray::read_from(&mut Cursor::new(buffer)).unwrap();
+
+        assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn test_truncated_huge_string_declaration_is_rejected_without_large_allocation() {
+        let encoded_length = u64::MAX.to_le_bytes();
+        let error =
+            MetadataValue::read_from(&mut Cursor::new(encoded_length), GGUFValueType::String)
+                .unwrap_err();
+
+        assert!(matches!(
+            error,
+            GGUFError::Io(_) | GGUFError::Format(_) | GGUFError::InvalidMetadata(_)
+        ));
+    }
+
+    #[test]
+    fn test_truncated_huge_array_declaration_is_rejected_without_large_allocation() {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(&(GGUFValueType::U8 as u32).to_le_bytes());
+        encoded.extend_from_slice(&u64::MAX.to_le_bytes());
+
+        let error = MetadataArray::read_from(&mut Cursor::new(encoded)).unwrap_err();
+        assert!(matches!(error, GGUFError::Io(_) | GGUFError::InvalidMetadata(_)));
+    }
+
+    #[test]
+    fn test_compact_array_is_rejected_before_decoded_memory_amplification() {
+        let mut encoded = Vec::new();
+        encoded.extend_from_slice(&6u64.to_le_bytes());
+        encoded.extend_from_slice(b"tokens");
+        encoded.extend_from_slice(&(GGUFValueType::Array as u32).to_le_bytes());
+        encoded.extend_from_slice(&(GGUFValueType::U8 as u32).to_le_bytes());
+        let oversized_elements =
+            GGUF_MAX_METADATA_DECODED_SIZE / core::mem::size_of::<MetadataValue>() + 1;
+        encoded.extend_from_slice(&(oversized_elements as u64).to_le_bytes());
+
+        let error =
+            Metadata::read_from_with_limit(&mut Cursor::new(encoded), 1, GGUF_MAX_METADATA_SIZE)
+                .unwrap_err();
+        assert!(error.to_string().contains("Decoded metadata allocation exceeds budget"));
+    }
+
+    #[test]
+    fn test_metadata_key_validation() {
+        for key in ["general.name", "tokenizer.ggml.model", "block_count", "layer.0.name"] {
+            let mut metadata = Metadata::new();
+            metadata.insert(key.to_string(), MetadataValue::U32(1));
+            assert!(metadata.validate().is_ok(), "valid key rejected: {key}");
+        }
+
+        for key in [
+            "Uppercase",
+            "has-dash",
+            ".leading",
+            "trailing.",
+            "double..dot",
+            "_leading",
+            "trailing_",
+            "double__underscore",
+        ] {
+            let mut metadata = Metadata::new();
+            metadata.insert(key.to_string(), MetadataValue::U32(1));
+            assert!(metadata.validate().is_err(), "invalid key accepted: {key}");
+        }
+    }
+
+    #[test]
+    fn test_invalid_bool_is_rejected() {
+        let mut cursor = Cursor::new([2u8]);
+        assert!(MetadataValue::read_from(&mut cursor, GGUFValueType::Bool).is_err());
+    }
+
+    #[test]
+    fn test_array_length_mismatch_is_rejected() {
+        let array = MetadataArray {
+            element_type: GGUFValueType::U32,
+            length: 2,
+            values: vec![MetadataValue::U32(1)],
+        };
+        assert!(array.validate().is_err());
+        assert!(array.write_to(&mut Vec::new()).is_err());
     }
 }

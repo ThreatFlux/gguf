@@ -13,12 +13,12 @@ mod tensor_type_tests {
         assert_eq!(TensorType::from_u32(2u32).unwrap(), TensorType::Q4_0);
         assert_eq!(TensorType::from_u32(3u32).unwrap(), TensorType::Q4_1);
         assert_eq!(TensorType::from_u32(8u32).unwrap(), TensorType::Q8_0);
-        assert_eq!(TensorType::from_u32(30u32).unwrap(), TensorType::I8);
-        assert_eq!(TensorType::from_u32(31u32).unwrap(), TensorType::I16);
-        assert_eq!(TensorType::from_u32(24u32).unwrap(), TensorType::I32);
-        assert_eq!(TensorType::from_u32(25u32).unwrap(), TensorType::I64);
-        assert_eq!(TensorType::from_u32(26u32).unwrap(), TensorType::F64);
-        assert_eq!(TensorType::from_u32(28u32).unwrap(), TensorType::BF16);
+        assert_eq!(TensorType::from_u32(24u32).unwrap(), TensorType::I8);
+        assert_eq!(TensorType::from_u32(25u32).unwrap(), TensorType::I16);
+        assert_eq!(TensorType::from_u32(26u32).unwrap(), TensorType::I32);
+        assert_eq!(TensorType::from_u32(27u32).unwrap(), TensorType::I64);
+        assert_eq!(TensorType::from_u32(28u32).unwrap(), TensorType::F64);
+        assert_eq!(TensorType::from_u32(30u32).unwrap(), TensorType::BF16);
 
         // Test invalid type
         assert!(TensorType::from_u32(999u32).is_err());
@@ -31,30 +31,31 @@ mod tensor_type_tests {
         assert_eq!(TensorType::Q4_0 as u32, 2);
         assert_eq!(TensorType::Q4_1 as u32, 3);
         assert_eq!(TensorType::Q8_0 as u32, 8);
-        assert_eq!(TensorType::I32 as u32, 24);
-        assert_eq!(TensorType::I64 as u32, 25);
-        assert_eq!(TensorType::F64 as u32, 26);
-        assert_eq!(TensorType::BF16 as u32, 28);
-        assert_eq!(TensorType::I8 as u32, 30);
-        assert_eq!(TensorType::I16 as u32, 31);
+        assert_eq!(TensorType::I8 as u32, 24);
+        assert_eq!(TensorType::I16 as u32, 25);
+        assert_eq!(TensorType::I32 as u32, 26);
+        assert_eq!(TensorType::I64 as u32, 27);
+        assert_eq!(TensorType::F64 as u32, 28);
+        assert_eq!(TensorType::BF16 as u32, 30);
     }
 
     #[test]
     fn test_tensor_type_element_size() {
         // Non-quantized types have fixed element sizes
-        assert_eq!(TensorType::F32.element_size(), 4);
-        assert_eq!(TensorType::F16.element_size(), 2);
-        assert_eq!(TensorType::F64.element_size(), 8);
-        assert_eq!(TensorType::I8.element_size(), 1);
-        assert_eq!(TensorType::I16.element_size(), 2);
-        assert_eq!(TensorType::I32.element_size(), 4);
-        assert_eq!(TensorType::I64.element_size(), 8);
-        assert_eq!(TensorType::BF16.element_size(), 2);
+        assert_eq!(TensorType::F32.element_size(), Some(4));
+        assert_eq!(TensorType::F16.element_size(), Some(2));
+        assert_eq!(TensorType::F64.element_size(), Some(8));
+        assert_eq!(TensorType::I8.element_size(), Some(1));
+        assert_eq!(TensorType::I16.element_size(), Some(2));
+        assert_eq!(TensorType::I32.element_size(), Some(4));
+        assert_eq!(TensorType::I64.element_size(), Some(8));
+        assert_eq!(TensorType::BF16.element_size(), Some(2));
+        assert_eq!(TensorType::Q4_0.element_size(), None);
 
         // Quantized types: check calculate_size for one block
-        assert_eq!(TensorType::Q4_0.calculate_size(32), 18); // 32 elements in one block = 18 bytes
-        assert_eq!(TensorType::Q4_1.calculate_size(32), 20); // 32 elements in one block = 20 bytes
-        assert_eq!(TensorType::Q8_0.calculate_size(32), 34); // 32 elements in one block = 34 bytes
+        assert_eq!(TensorType::Q4_0.calculate_size(32), Some(18)); // 32 elements in one block = 18 bytes
+        assert_eq!(TensorType::Q4_1.calculate_size(32), Some(20)); // 32 elements in one block = 20 bytes
+        assert_eq!(TensorType::Q8_0.calculate_size(32), Some(34)); // 32 elements in one block = 34 bytes
     }
 
     #[test]
@@ -532,7 +533,9 @@ fn calculate_block_size(tensor_type: TensorType) -> usize {
 }
 
 fn calculate_quantized_size(elements: usize, tensor_type: TensorType) -> usize {
-    tensor_type.calculate_size(elements as u64) as usize
+    tensor_type
+        .calculate_size(elements as u64)
+        .expect("test tensor type has supported storage geometry") as usize
 }
 
 #[derive(Debug)]
@@ -565,7 +568,7 @@ fn get_quantization_info(tensor_type: TensorType) -> QuantizationInfo {
         },
         _ => QuantizationInfo {
             block_size: 1,
-            type_size: tensor_type.element_size(),
+            type_size: tensor_type.element_size().unwrap_or(0),
             has_scale: false,
             has_zero_point: false,
         },

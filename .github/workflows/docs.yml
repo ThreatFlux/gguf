@@ -2,57 +2,73 @@ name: Documentation
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  RUSTDOCFLAGS: "-D warnings"
 
 jobs:
   build-docs:
     name: Build Documentation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          toolchain: 1.95.0
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.97.1
+
+      - name: Cache Cargo data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-docs-1.97.1-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Build documentation
-        run: |
-          cargo doc --no-deps --all-features --document-private-items
-          echo '<meta http-equiv="refresh" content="0; url=gguf/index.html">' > target/doc/index.html
+        run: cargo doc --locked --workspace --all-features --no-deps
 
-      - name: Fix permissions
-        run: |
-          chmod -c -R +rX "target/doc/" | while read line; do
-            echo "::warning title=Invalid file permissions automatically fixed::$line"
-          done
+      - name: Add landing page
+        shell: bash
+        run: >-
+          printf '%s\n'
+          '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=gguf_rs_lib/index.html"><title>GGUF Rust documentation</title>'
+          > target/doc/index.html
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload documentation artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: ./target/doc
+          path: target/doc
 
   deploy-docs:
     name: Deploy Documentation
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-docs
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build-docs
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

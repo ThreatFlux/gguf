@@ -46,7 +46,18 @@ pub enum GGUFValueType {
     F64 = 12,
 }
 
-/// Type identifiers for tensor data types in GGUF
+/// Type identifiers for tensor data types in GGUF.
+///
+/// # 0.3 migration
+///
+/// Version 0.3 corrected the integer, F64, IQ1_M, and BF16 discriminants to the
+/// canonical GGML values: I8=24, I16=25, I32=26, I64=27, F64=28, IQ1_M=29,
+/// and BF16=30. Code that persisted the pre-0.3 Rust enum discriminants must
+/// migrate those values; the old numbers were not valid GGUF encodings for the
+/// named variants. Version 0.3 also recognizes the current TQ1_0=34, TQ2_0=35,
+/// MXFP4=39, NVFP4=40, Q1_0=41, and Q2_0=42 raw storage types. `IQ4_UNI`
+/// remains only as a source-compatibility variant and is rejected by file
+/// readers and writers.
 #[repr(u32)]
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -84,38 +95,50 @@ pub enum GGUFTensorType {
     Q6_K = 14,
     /// 8-bit quantized (K-quant)
     Q8_K = 15,
-    /// 4-bit quantized (IQ variant)
+    /// IQ2_XXS quantization; canonical geometry is 256 weights per 66-byte block
     IQ2_XXS = 16,
-    /// 2-bit quantized (IQ variant)
+    /// IQ2_XS quantization; canonical geometry is 256 weights per 74-byte block
     IQ2_XS = 17,
-    /// 3-bit quantized (IQ variant)
+    /// IQ3_XXS quantization; canonical geometry is 256 weights per 98-byte block
     IQ3_XXS = 18,
-    /// 3-bit quantized (IQ variant)
+    /// IQ1_S quantization; canonical geometry is 256 weights per 50-byte block
     IQ1_S = 19,
-    /// 4-bit quantized (IQ variant)
+    /// IQ4_NL quantization; canonical geometry is 32 weights per 18-byte block
     IQ4_NL = 20,
-    /// 4-bit quantized (IQ variant)
+    /// IQ3_S quantization; canonical geometry is 256 weights per 110-byte block
     IQ3_S = 21,
-    /// 4-bit quantized (IQ variant)
+    /// IQ2_S quantization; canonical geometry is 256 weights per 82-byte block
     IQ2_S = 22,
-    /// 4-bit quantized (IQ variant)
+    /// IQ4_XS quantization; canonical geometry is 256 weights per 136-byte block
     IQ4_XS = 23,
-    /// 32-bit signed integer
-    I32 = 24,
-    /// 64-bit signed integer
-    I64 = 25,
-    /// 64-bit floating point
-    F64 = 26,
-    /// 4-bit quantized (IQ variant)
-    IQ1_M = 27,
-    /// bfloat16 (Brain Floating Point)
-    BF16 = 28,
-    /// 4-bit quantized (IQ variant, ultra-small)
-    IQ4_UNI = 29,
     /// 8-bit signed integer
-    I8 = 30,
+    I8 = 24,
     /// 16-bit signed integer
-    I16 = 31,
+    I16 = 25,
+    /// 32-bit signed integer
+    I32 = 26,
+    /// 64-bit signed integer
+    I64 = 27,
+    /// 64-bit floating point
+    F64 = 28,
+    /// IQ1_M quantization; canonical geometry is 256 weights per 56-byte block
+    IQ1_M = 29,
+    /// bfloat16 (Brain Floating Point)
+    BF16 = 30,
+    /// TQ1_0 ternary quantization; 256 weights per 54-byte block
+    TQ1_0 = 34,
+    /// TQ2_0 ternary quantization; 256 weights per 66-byte block
+    TQ2_0 = 35,
+    /// MXFP4 microscaling quantization; 32 weights per 17-byte block
+    MXFP4 = 39,
+    /// NVFP4 quantization; 64 weights per 36-byte block
+    NVFP4 = 40,
+    /// Q1_0 quantization; 128 weights per 18-byte block
+    Q1_0 = 41,
+    /// Q2_0 quantization; 64 weights per 18-byte block
+    Q2_0 = 42,
+    /// Legacy SDK-only value retained for source compatibility; not a GGUF tensor type
+    IQ4_UNI = u32::MAX,
 }
 
 impl GGUFValueType {
@@ -213,8 +236,6 @@ impl GGUFTensorType {
             1 => Ok(GGUFTensorType::F16),
             2 => Ok(GGUFTensorType::Q4_0),
             3 => Ok(GGUFTensorType::Q4_1),
-            4 => Ok(GGUFTensorType::Q4_2),
-            5 => Ok(GGUFTensorType::Q4_3),
             6 => Ok(GGUFTensorType::Q5_0),
             7 => Ok(GGUFTensorType::Q5_1),
             8 => Ok(GGUFTensorType::Q8_0),
@@ -233,28 +254,34 @@ impl GGUFTensorType {
             21 => Ok(GGUFTensorType::IQ3_S),
             22 => Ok(GGUFTensorType::IQ2_S),
             23 => Ok(GGUFTensorType::IQ4_XS),
-            24 => Ok(GGUFTensorType::I32),
-            25 => Ok(GGUFTensorType::I64),
-            26 => Ok(GGUFTensorType::F64),
-            27 => Ok(GGUFTensorType::IQ1_M),
-            28 => Ok(GGUFTensorType::BF16),
-            29 => Ok(GGUFTensorType::IQ4_UNI),
-            30 => Ok(GGUFTensorType::I8),
-            31 => Ok(GGUFTensorType::I16),
+            24 => Ok(GGUFTensorType::I8),
+            25 => Ok(GGUFTensorType::I16),
+            26 => Ok(GGUFTensorType::I32),
+            27 => Ok(GGUFTensorType::I64),
+            28 => Ok(GGUFTensorType::F64),
+            29 => Ok(GGUFTensorType::IQ1_M),
+            30 => Ok(GGUFTensorType::BF16),
+            34 => Ok(GGUFTensorType::TQ1_0),
+            35 => Ok(GGUFTensorType::TQ2_0),
+            39 => Ok(GGUFTensorType::MXFP4),
+            40 => Ok(GGUFTensorType::NVFP4),
+            41 => Ok(GGUFTensorType::Q1_0),
+            42 => Ok(GGUFTensorType::Q2_0),
             _ => Err(GGUFError::Format(format!("Unknown GGUF tensor type: {}", value))),
         }
     }
 
-    /// Get the size in bytes of a single element for this tensor type
-    pub fn element_size(self) -> usize {
+    /// Get the byte size of one independently addressable scalar value.
+    ///
+    /// Quantized formats are block-addressed and return `None`; use
+    /// [`Self::block_size`] and [`Self::block_size_bytes`] for their geometry.
+    pub const fn element_size(self) -> Option<usize> {
         match self {
-            GGUFTensorType::F32 | GGUFTensorType::I32 => 4,
-            GGUFTensorType::F16 | GGUFTensorType::BF16 | GGUFTensorType::I16 => 2,
-            GGUFTensorType::F64 | GGUFTensorType::I64 => 8,
-            GGUFTensorType::I8 => 1,
-            // Quantized types - these are block-based, so element size is not directly applicable
-            // Returning 1 as a placeholder, actual size calculations are more complex
-            _ => 1,
+            GGUFTensorType::F32 | GGUFTensorType::I32 => Some(4),
+            GGUFTensorType::F16 | GGUFTensorType::BF16 | GGUFTensorType::I16 => Some(2),
+            GGUFTensorType::F64 | GGUFTensorType::I64 => Some(8),
+            GGUFTensorType::I8 => Some(1),
+            _ => None,
         }
     }
 
@@ -271,21 +298,76 @@ impl GGUFTensorType {
             | GGUFTensorType::Q4_K
             | GGUFTensorType::Q5_K
             | GGUFTensorType::Q6_K
-            | GGUFTensorType::Q8_K => 256,
-            // IQ types typically have smaller block sizes
+            | GGUFTensorType::Q8_K
+            | GGUFTensorType::TQ1_0
+            | GGUFTensorType::TQ2_0 => 256,
+            // IQ super-block types use 256 weights, except IQ4_NL.
             GGUFTensorType::IQ2_XXS
             | GGUFTensorType::IQ2_XS
             | GGUFTensorType::IQ3_XXS
             | GGUFTensorType::IQ1_S
-            | GGUFTensorType::IQ4_NL
             | GGUFTensorType::IQ3_S
             | GGUFTensorType::IQ2_S
             | GGUFTensorType::IQ4_XS
-            | GGUFTensorType::IQ1_M
-            | GGUFTensorType::IQ4_UNI => 32,
+            | GGUFTensorType::IQ1_M => 256,
+            GGUFTensorType::IQ4_NL | GGUFTensorType::MXFP4 => 32,
+            GGUFTensorType::NVFP4 | GGUFTensorType::Q2_0 => 64,
+            GGUFTensorType::Q1_0 => 128,
+            GGUFTensorType::Q4_2 | GGUFTensorType::Q4_3 | GGUFTensorType::IQ4_UNI => 0,
             // Non-quantized types don't have blocks
             _ => 1,
         }
+    }
+
+    /// Get the canonical GGML storage size of one block in bytes.
+    ///
+    /// For scalar types, a block contains one element. Removed GGML types and
+    /// the SDK-only `IQ4_UNI` compatibility variant return `None`.
+    pub const fn block_size_bytes(self) -> Option<usize> {
+        match self {
+            GGUFTensorType::F32 | GGUFTensorType::I32 => Some(4),
+            GGUFTensorType::F16 | GGUFTensorType::BF16 | GGUFTensorType::I16 => Some(2),
+            GGUFTensorType::F64 | GGUFTensorType::I64 => Some(8),
+            GGUFTensorType::I8 => Some(1),
+            GGUFTensorType::Q4_0 => Some(18),
+            GGUFTensorType::Q4_1 => Some(20),
+            GGUFTensorType::Q5_0 => Some(22),
+            GGUFTensorType::Q5_1 => Some(24),
+            GGUFTensorType::Q8_0 => Some(34),
+            GGUFTensorType::Q8_1 => Some(36),
+            GGUFTensorType::Q2_K => Some(84),
+            GGUFTensorType::Q3_K => Some(110),
+            GGUFTensorType::Q4_K => Some(144),
+            GGUFTensorType::Q5_K => Some(176),
+            GGUFTensorType::Q6_K => Some(210),
+            GGUFTensorType::Q8_K => Some(292),
+            GGUFTensorType::IQ2_XXS => Some(66),
+            GGUFTensorType::IQ2_XS => Some(74),
+            GGUFTensorType::IQ3_XXS => Some(98),
+            GGUFTensorType::IQ1_S => Some(50),
+            GGUFTensorType::IQ4_NL => Some(18),
+            GGUFTensorType::IQ3_S => Some(110),
+            GGUFTensorType::IQ2_S => Some(82),
+            GGUFTensorType::IQ4_XS => Some(136),
+            GGUFTensorType::IQ1_M => Some(56),
+            GGUFTensorType::TQ1_0 => Some(54),
+            GGUFTensorType::TQ2_0 => Some(66),
+            GGUFTensorType::MXFP4 => Some(17),
+            GGUFTensorType::NVFP4 => Some(36),
+            GGUFTensorType::Q1_0 | GGUFTensorType::Q2_0 => Some(18),
+            GGUFTensorType::Q4_2 | GGUFTensorType::Q4_3 | GGUFTensorType::IQ4_UNI => None,
+        }
+    }
+
+    /// Return the physical storage bits per weight, including per-block
+    /// scales, minima, and other overhead.
+    pub fn storage_bits_per_weight(self) -> Option<f32> {
+        let elements = self.block_size();
+        let bytes = self.block_size_bytes()?;
+        if elements == 0 {
+            return None;
+        }
+        Some((bytes as f32 * 8.0) / elements as f32)
     }
 
     /// Check if this tensor type is quantized
@@ -300,6 +382,9 @@ impl GGUFTensorType {
                 | GGUFTensorType::F64
                 | GGUFTensorType::I8
                 | GGUFTensorType::I16
+                | GGUFTensorType::Q4_2
+                | GGUFTensorType::Q4_3
+                | GGUFTensorType::IQ4_UNI
         )
     }
 
@@ -329,7 +414,6 @@ impl GGUFTensorType {
                 | GGUFTensorType::IQ2_S
                 | GGUFTensorType::IQ4_XS
                 | GGUFTensorType::IQ1_M
-                | GGUFTensorType::IQ4_UNI
         )
     }
 
@@ -365,52 +449,37 @@ impl GGUFTensorType {
             GGUFTensorType::F64 => "F64",
             GGUFTensorType::IQ1_M => "IQ1_M",
             GGUFTensorType::BF16 => "BF16",
+            GGUFTensorType::TQ1_0 => "TQ1_0",
+            GGUFTensorType::TQ2_0 => "TQ2_0",
+            GGUFTensorType::MXFP4 => "MXFP4",
+            GGUFTensorType::NVFP4 => "NVFP4",
+            GGUFTensorType::Q1_0 => "Q1_0",
+            GGUFTensorType::Q2_0 => "Q2_0",
             GGUFTensorType::IQ4_UNI => "IQ4_UNI",
             GGUFTensorType::I8 => "I8",
             GGUFTensorType::I16 => "I16",
         }
     }
 
-    /// Calculate the size in bytes for a given number of elements
-    pub fn calculate_size(self, element_count: u64) -> u64 {
-        if !self.is_quantized() {
-            return element_count * self.element_size() as u64;
+    /// Calculate the storage size in bytes for a given number of elements.
+    ///
+    /// Returns `None` for removed or non-GGUF tensor types and on arithmetic
+    /// overflow.
+    pub fn calculate_size(self, element_count: u64) -> Option<u64> {
+        self.checked_calculate_size(element_count)
+    }
+
+    /// Calculate the storage size using GGML's block layout without overflowing.
+    ///
+    /// Returns `None` for removed or non-GGUF tensor types and on arithmetic overflow.
+    pub fn checked_calculate_size(self, element_count: u64) -> Option<u64> {
+        let block_size = u64::try_from(self.block_size()).ok()?;
+        if block_size == 0 {
+            return None;
         }
-
-        let block_size = self.block_size() as u64;
-        let num_blocks = element_count.div_ceil(block_size);
-
-        match self {
-            GGUFTensorType::Q4_0 => num_blocks * 18, // 2 bytes scale + 16 bytes data per block
-            GGUFTensorType::Q4_1 => num_blocks * 20, // 2 bytes scale + 2 bytes min + 16 bytes data per block
-            GGUFTensorType::Q5_0 => num_blocks * 22, // 2 bytes scale + 4 bytes high bits + 16 bytes data per block
-            GGUFTensorType::Q5_1 => num_blocks * 24, // 2 bytes scale + 2 bytes min + 4 bytes high bits + 16 bytes data per block
-            GGUFTensorType::Q8_0 => num_blocks * 34, // 2 bytes scale + 32 bytes data per block
-            GGUFTensorType::Q8_1 => num_blocks * 36, // 4 bytes scale + 32 bytes data per block
-
-            // K-quants have more complex layouts
-            GGUFTensorType::Q2_K => num_blocks * 82, // Approximate size
-            GGUFTensorType::Q3_K => num_blocks * 110, // Approximate size
-            GGUFTensorType::Q4_K => num_blocks * 144, // Approximate size
-            GGUFTensorType::Q5_K => num_blocks * 176, // Approximate size
-            GGUFTensorType::Q6_K => num_blocks * 210, // Approximate size
-            GGUFTensorType::Q8_K => num_blocks * 256, // Approximate size
-
-            // IQ types - approximate sizes
-            GGUFTensorType::IQ2_XXS => element_count.div_ceil(8) * 2, // ~2 bits per element
-            GGUFTensorType::IQ2_XS => element_count.div_ceil(8) * 2,  // ~2 bits per element
-            GGUFTensorType::IQ3_XXS => element_count.div_ceil(8) * 3, // ~3 bits per element
-            GGUFTensorType::IQ1_S => element_count.div_ceil(8),       // ~1 bit per element
-            GGUFTensorType::IQ4_NL => element_count.div_ceil(2),      // ~4 bits per element
-            GGUFTensorType::IQ3_S => element_count.div_ceil(8) * 3,   // ~3 bits per element
-            GGUFTensorType::IQ2_S => element_count.div_ceil(8) * 2,   // ~2 bits per element
-            GGUFTensorType::IQ4_XS => element_count.div_ceil(2),      // ~4 bits per element
-            GGUFTensorType::IQ1_M => element_count.div_ceil(8),       // ~1 bit per element
-            GGUFTensorType::IQ4_UNI => element_count.div_ceil(2),     // ~4 bits per element
-
-            // Fallback for unsupported types
-            _ => element_count * self.element_size() as u64,
-        }
+        let block_bytes = u64::try_from(self.block_size_bytes()?).ok()?;
+        let blocks = element_count.div_ceil(block_size);
+        blocks.checked_mul(block_bytes)
     }
 }
 
@@ -484,6 +553,12 @@ impl fmt::Display for GGUFTensorType {
             GGUFTensorType::Q4_3 => write!(f, "Q4_3"),
             GGUFTensorType::IQ1_M => write!(f, "IQ1_M"),
             GGUFTensorType::BF16 => write!(f, "BF16"),
+            GGUFTensorType::TQ1_0 => write!(f, "TQ1_0"),
+            GGUFTensorType::TQ2_0 => write!(f, "TQ2_0"),
+            GGUFTensorType::MXFP4 => write!(f, "MXFP4"),
+            GGUFTensorType::NVFP4 => write!(f, "NVFP4"),
+            GGUFTensorType::Q1_0 => write!(f, "Q1_0"),
+            GGUFTensorType::Q2_0 => write!(f, "Q2_0"),
             GGUFTensorType::IQ4_UNI => write!(f, "IQ4_UNI"),
         }
     }
@@ -505,7 +580,22 @@ mod tests {
     fn test_gguf_tensor_type_conversion() {
         assert_eq!(GGUFTensorType::from_u32(0).unwrap(), GGUFTensorType::F32);
         assert_eq!(GGUFTensorType::from_u32(2).unwrap(), GGUFTensorType::Q4_0);
-        assert_eq!(GGUFTensorType::from_u32(28).unwrap(), GGUFTensorType::BF16);
+        assert_eq!(GGUFTensorType::from_u32(30).unwrap(), GGUFTensorType::BF16);
+        assert_eq!(GGUFTensorType::I8 as u32, 24);
+        assert_eq!(GGUFTensorType::I16 as u32, 25);
+        assert_eq!(GGUFTensorType::I32 as u32, 26);
+        assert_eq!(GGUFTensorType::I64 as u32, 27);
+        assert_eq!(GGUFTensorType::F64 as u32, 28);
+        assert_eq!(GGUFTensorType::IQ1_M as u32, 29);
+        assert_eq!(GGUFTensorType::from_u32(34).unwrap(), GGUFTensorType::TQ1_0);
+        assert_eq!(GGUFTensorType::from_u32(35).unwrap(), GGUFTensorType::TQ2_0);
+        assert_eq!(GGUFTensorType::from_u32(39).unwrap(), GGUFTensorType::MXFP4);
+        assert_eq!(GGUFTensorType::from_u32(40).unwrap(), GGUFTensorType::NVFP4);
+        assert_eq!(GGUFTensorType::from_u32(41).unwrap(), GGUFTensorType::Q1_0);
+        assert_eq!(GGUFTensorType::from_u32(42).unwrap(), GGUFTensorType::Q2_0);
+        for unsupported in [4, 5, 31, 32, 33, 36, 37, 38, u32::MAX] {
+            assert!(GGUFTensorType::from_u32(unsupported).is_err());
+        }
         assert!(GGUFTensorType::from_u32(99).is_err());
     }
 
@@ -527,8 +617,9 @@ mod tests {
 
     #[test]
     fn test_tensor_type_properties() {
-        assert_eq!(GGUFTensorType::F32.element_size(), 4);
-        assert_eq!(GGUFTensorType::F16.element_size(), 2);
+        assert_eq!(GGUFTensorType::F32.element_size(), Some(4));
+        assert_eq!(GGUFTensorType::F16.element_size(), Some(2));
+        assert_eq!(GGUFTensorType::Q4_0.element_size(), None);
 
         assert!(GGUFTensorType::Q4_0.is_quantized());
         assert!(!GGUFTensorType::F32.is_quantized());
@@ -546,14 +637,28 @@ mod tests {
     #[test]
     fn test_tensor_size_calculation() {
         // Non-quantized types
-        assert_eq!(GGUFTensorType::F32.calculate_size(100), 400);
-        assert_eq!(GGUFTensorType::F16.calculate_size(100), 200);
+        assert_eq!(GGUFTensorType::F32.calculate_size(100), Some(400));
+        assert_eq!(GGUFTensorType::F16.calculate_size(100), Some(200));
 
         // Quantized types
         let q4_0_size = GGUFTensorType::Q4_0.calculate_size(32); // One block
-        assert_eq!(q4_0_size, 18);
+        assert_eq!(q4_0_size, Some(18));
 
         let q4_0_size_multi = GGUFTensorType::Q4_0.calculate_size(64); // Two blocks
-        assert_eq!(q4_0_size_multi, 36);
+        assert_eq!(q4_0_size_multi, Some(36));
+
+        assert_eq!(GGUFTensorType::Q2_K.calculate_size(256), Some(84));
+        assert_eq!(GGUFTensorType::Q4_K.calculate_size(256), Some(144));
+        assert_eq!(GGUFTensorType::IQ2_XXS.calculate_size(256), Some(66));
+        assert_eq!(GGUFTensorType::IQ4_NL.calculate_size(32), Some(18));
+        assert_eq!(GGUFTensorType::IQ1_M.calculate_size(256), Some(56));
+        assert_eq!(GGUFTensorType::TQ1_0.calculate_size(256), Some(54));
+        assert_eq!(GGUFTensorType::TQ2_0.calculate_size(256), Some(66));
+        assert_eq!(GGUFTensorType::MXFP4.calculate_size(32), Some(17));
+        assert_eq!(GGUFTensorType::NVFP4.calculate_size(64), Some(36));
+        assert_eq!(GGUFTensorType::Q1_0.calculate_size(128), Some(18));
+        assert_eq!(GGUFTensorType::Q2_0.calculate_size(64), Some(18));
+        assert_eq!(GGUFTensorType::F64.checked_calculate_size(u64::MAX), None);
+        assert_eq!(GGUFTensorType::Q4_2.checked_calculate_size(32), None);
     }
 }

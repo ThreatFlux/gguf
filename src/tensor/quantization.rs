@@ -4,7 +4,7 @@ use crate::format::types::GGUFTensorType as TensorType;
 #[cfg(feature = "std")]
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "std")]
-use std::{cmp, mem};
+use std::cmp;
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
 extern crate alloc;
@@ -15,213 +15,97 @@ use std::vec::Vec;
 
 // Import core modules for no_std compatibility
 #[cfg(not(feature = "std"))]
-use core::{cmp, fmt, mem};
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
-use libm::powf;
+use core::{cmp, fmt};
 
-// Helper function for powf that works in both std and no_std
-#[cfg(feature = "std")]
-fn powf_helper(base: f32, exp: f32) -> f32 {
-    base.powf(exp)
-}
-
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
-fn powf_helper(base: f32, exp: f32) -> f32 {
-    powf(base, exp)
-}
-
-#[cfg(not(any(feature = "std", feature = "alloc")))]
-fn powf_helper(base: f32, exp: f32) -> f32 {
-    // Simple power implementation for integer exponents
-    if exp == 0.0 {
-        1.0
-    } else if exp == 1.0 {
-        base
-    } else if exp == 2.0 {
-        base * base
-    } else if exp == 0.5 {
-        // Simple sqrt approximation using Newton's method
-        if base == 0.0 {
-            return 0.0;
-        }
-        let mut guess = base / 2.0;
-        for _ in 0..10 {
-            guess = (guess + base / guess) / 2.0;
-        }
-        guess
-    } else {
-        // For other exponents, use a very basic approximation
-        base // This is a fallback - not mathematically correct but compiles
-    }
-}
-
-/// Block-based quantization format structures
+/// Exact-size opaque views of GGML quantization blocks.
+///
+/// The encoded byte layouts are stable, but many formats use packed bitfields
+/// whose semantic field representation depends on GGML implementation details.
+/// Keeping those blocks opaque prevents this crate from promising incorrect
+/// field layouts while still making their canonical sizes available.
 pub mod blocks {
-    /// Q4_0 quantization block (32 4-bit values + scale)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q4_0Block {
-        /// FP16 scale factor
-        pub scale: [u8; 2], // f16 as bytes
-        /// 16 bytes of 4-bit quantized values (32 values, 4 bits each)
-        pub data: [u8; 16],
+    macro_rules! opaque_block {
+        ($(#[$meta:meta])* $name:ident, $size:expr) => {
+            $(#[$meta])*
+            #[repr(transparent)]
+            #[allow(non_camel_case_types)]
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            pub struct $name {
+                /// The canonical encoded GGML block bytes.
+                pub bytes: [u8; $size],
+            }
+
+            impl $name {
+                /// Encoded size of one block in bytes.
+                pub const SIZE: usize = $size;
+
+                /// Construct a block from its exact encoded representation.
+                pub const fn from_bytes(bytes: [u8; $size]) -> Self {
+                    Self { bytes }
+                }
+
+                /// Return the exact encoded representation.
+                pub const fn into_bytes(self) -> [u8; $size] {
+                    self.bytes
+                }
+            }
+        };
     }
 
-    /// Q4_1 quantization block (32 4-bit values + scale + min)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q4_1Block {
-        /// FP16 scale factor
-        pub scale: [u8; 2], // f16 as bytes
-        /// FP16 minimum value
-        pub min: [u8; 2], // f16 as bytes
-        /// 16 bytes of 4-bit quantized values
-        pub data: [u8; 16],
-    }
-
-    /// Q5_0 quantization block (32 5-bit values + scale)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q5_0Block {
-        /// FP16 scale factor
-        pub scale: [u8; 2],
-        /// 4 bytes for high bits (1 bit per value)
-        pub high_bits: [u8; 4],
-        /// 16 bytes of 4-bit quantized values
-        pub data: [u8; 16],
-    }
-
-    /// Q5_1 quantization block (32 5-bit values + scale + min)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q5_1Block {
-        /// FP16 scale factor
-        pub scale: [u8; 2],
-        /// FP16 minimum value
-        pub min: [u8; 2],
-        /// 4 bytes for high bits
-        pub high_bits: [u8; 4],
-        /// 16 bytes of 4-bit quantized values
-        pub data: [u8; 16],
-    }
-
-    /// Q8_0 quantization block (32 8-bit values + scale)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q8_0Block {
-        /// FP16 scale factor
-        pub scale: [u8; 2],
-        /// 32 bytes of 8-bit quantized values
-        pub data: [u8; 32],
-    }
-
-    /// Q8_1 quantization block (32 8-bit values + scale + sum)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q8_1Block {
-        /// FP32 scale factor
-        pub scale: [u8; 4], // f32 as bytes
-        /// 32 bytes of 8-bit quantized values
-        pub data: [u8; 32],
-    }
-
-    // K-quant blocks are more complex and vary by type
-    // These are simplified representations
-
-    /// Q2_K quantization block (256 2-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q2_KBlock {
-        /// Scales and other metadata
-        pub metadata: [u8; 18],
-        /// Quantized data
-        pub data: [u8; 64],
-    }
-
-    /// Q3_K quantization block (256 3-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q3_KBlock {
-        /// High bits for extra precision
-        pub high_bits: [u8; 32],
-        /// Scales and metadata
-        pub scales: [u8; 12],
-        /// Quantized data
-        pub data: [u8; 64],
-    }
-
-    /// Q4_K quantization block (256 4-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q4_KBlock {
-        /// Scales
-        pub scales: [u8; 12],
-        /// Fine scales
-        pub fine_scales: [u8; 16],
-        /// Quantized data
-        pub data: [u8; 128],
-    }
-
-    /// Q5_K quantization block (256 5-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q5_KBlock {
-        /// Scales
-        pub scales: [u8; 12],
-        /// High bits
-        pub high_bits: [u8; 32],
-        /// Fine scales
-        pub fine_scales: [u8; 16],
-        /// Quantized data
-        pub data: [u8; 128],
-    }
-
-    /// Q6_K quantization block (256 6-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q6_KBlock {
-        /// Quantized data (6 bits per value)
-        pub data: [u8; 192],
-        /// Scales
-        pub scales: [u8; 16],
-    }
-
-    /// Q8_K quantization block (256 8-bit values)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct Q8_KBlock {
-        /// Quantized data
-        pub data: [u8; 256],
-        /// Scales
-        pub scales: [u8; 32],
-    }
-
-    // IQ types are very specialized and implementation-specific
-    // These are placeholder structures
-
-    /// IQ2_XXS quantization block (ultra-compressed)
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct IQ2_XXSBlock {
-        /// Compressed data (implementation specific)
-        pub data: [u8; 8],
-    }
-
-    /// IQ3_XXS quantization block
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct IQ3_XXSBlock {
-        /// Compressed data (implementation specific)
-        pub data: [u8; 12],
-    }
-
-    /// IQ4_NL quantization block
-    #[repr(C, packed)]
-    #[derive(Debug, Clone, Copy)]
-    pub struct IQ4_NLBlock {
-        /// Compressed data (implementation specific)
-        pub data: [u8; 16],
-    }
+    opaque_block!(/// Q4_0 block: 32 weights in 18 bytes.
+        Q4_0Block, 18);
+    opaque_block!(/// Q4_1 block: 32 weights in 20 bytes.
+        Q4_1Block, 20);
+    opaque_block!(/// Q5_0 block: 32 weights in 22 bytes.
+        Q5_0Block, 22);
+    opaque_block!(/// Q5_1 block: 32 weights in 24 bytes.
+        Q5_1Block, 24);
+    opaque_block!(/// Q8_0 block: 32 weights in 34 bytes.
+        Q8_0Block, 34);
+    opaque_block!(/// Q8_1 block: 32 weights in 36 bytes.
+        Q8_1Block, 36);
+    opaque_block!(/// Q2_K super-block: 256 weights in 84 bytes.
+        Q2_KBlock, 84);
+    opaque_block!(/// Q3_K super-block: 256 weights in 110 bytes.
+        Q3_KBlock, 110);
+    opaque_block!(/// Q4_K super-block: 256 weights in 144 bytes.
+        Q4_KBlock, 144);
+    opaque_block!(/// Q5_K super-block: 256 weights in 176 bytes.
+        Q5_KBlock, 176);
+    opaque_block!(/// Q6_K super-block: 256 weights in 210 bytes.
+        Q6_KBlock, 210);
+    opaque_block!(/// Q8_K super-block: 256 weights in 292 bytes.
+        Q8_KBlock, 292);
+    opaque_block!(/// IQ2_XXS super-block: 256 weights in 66 bytes.
+        IQ2_XXSBlock, 66);
+    opaque_block!(/// IQ2_XS super-block: 256 weights in 74 bytes.
+        IQ2_XSBlock, 74);
+    opaque_block!(/// IQ3_XXS super-block: 256 weights in 98 bytes.
+        IQ3_XXSBlock, 98);
+    opaque_block!(/// IQ1_S super-block: 256 weights in 50 bytes.
+        IQ1_SBlock, 50);
+    opaque_block!(/// IQ4_NL block: 32 weights in 18 bytes.
+        IQ4_NLBlock, 18);
+    opaque_block!(/// IQ3_S super-block: 256 weights in 110 bytes.
+        IQ3_SBlock, 110);
+    opaque_block!(/// IQ2_S super-block: 256 weights in 82 bytes.
+        IQ2_SBlock, 82);
+    opaque_block!(/// IQ4_XS super-block: 256 weights in 136 bytes.
+        IQ4_XSBlock, 136);
+    opaque_block!(/// IQ1_M super-block: 256 weights in 56 bytes.
+        IQ1_MBlock, 56);
+    opaque_block!(/// TQ1_0 block: 256 weights in 54 bytes.
+        TQ1_0Block, 54);
+    opaque_block!(/// TQ2_0 block: 256 weights in 66 bytes.
+        TQ2_0Block, 66);
+    opaque_block!(/// MXFP4 block: 32 weights in 17 bytes.
+        MXFP4Block, 17);
+    opaque_block!(/// NVFP4 block: 64 weights in 36 bytes.
+        NVFP4Block, 36);
+    opaque_block!(/// Q1_0 block: 128 weights in 18 bytes.
+        Q1_0Block, 18);
+    opaque_block!(/// Q2_0 block: 64 weights in 18 bytes.
+        Q2_0Block, 18);
 }
 
 /// Quantization parameters for different tensor types
@@ -232,7 +116,7 @@ pub struct QuantizationParams {
     pub tensor_type: TensorType,
     /// Block size (number of elements per quantization block)
     pub block_size: usize,
-    /// Bits per weight
+    /// Physical storage bits per weight, including block metadata overhead
     pub bits_per_weight: f32,
     /// Whether this format supports scales
     pub has_scales: bool,
@@ -247,225 +131,60 @@ pub struct QuantizationParams {
 impl QuantizationParams {
     /// Get quantization parameters for a tensor type
     pub fn for_type(tensor_type: TensorType) -> Self {
-        use blocks::*;
+        let block_size = tensor_type.block_size();
+        let block_size_bytes = tensor_type.block_size_bytes().unwrap_or(0);
+        let bits_per_weight = tensor_type.storage_bits_per_weight().unwrap_or(0.0);
+        let has_scales = tensor_type.is_quantized();
+        let has_min = matches!(
+            tensor_type,
+            TensorType::Q4_1
+                | TensorType::Q5_1
+                | TensorType::Q2_K
+                | TensorType::Q4_K
+                | TensorType::Q5_K
+        );
+        let has_high_bits = matches!(
+            tensor_type,
+            TensorType::Q5_0
+                | TensorType::Q5_1
+                | TensorType::Q3_K
+                | TensorType::Q5_K
+                | TensorType::Q6_K
+        );
 
-        match tensor_type {
-            TensorType::Q4_0 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 4.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                #[cfg(feature = "std")]
-                block_size_bytes: mem::size_of::<Q4_0Block>(),
-                #[cfg(not(feature = "std"))]
-                block_size_bytes: mem::size_of::<Q4_0Block>(),
-            },
-            TensorType::Q4_1 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 4.0,
-                has_scales: true,
-                has_min: true,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q4_1Block>(),
-            },
-            TensorType::Q5_0 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 5.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: true,
-                block_size_bytes: mem::size_of::<Q5_0Block>(),
-            },
-            TensorType::Q5_1 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 5.0,
-                has_scales: true,
-                has_min: true,
-                has_high_bits: true,
-                block_size_bytes: mem::size_of::<Q5_1Block>(),
-            },
-            TensorType::Q8_0 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 8.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q8_0Block>(),
-            },
-            TensorType::Q8_1 => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 8.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q8_1Block>(),
-            },
-            TensorType::Q2_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 2.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q2_KBlock>(),
-            },
-            TensorType::Q3_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 3.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: true,
-                block_size_bytes: mem::size_of::<Q3_KBlock>(),
-            },
-            TensorType::Q4_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 4.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q4_KBlock>(),
-            },
-            TensorType::Q5_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 5.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: true,
-                block_size_bytes: mem::size_of::<Q5_KBlock>(),
-            },
-            TensorType::Q6_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 6.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q6_KBlock>(),
-            },
-            TensorType::Q8_K => Self {
-                tensor_type,
-                block_size: 256,
-                bits_per_weight: 8.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<Q8_KBlock>(),
-            },
-            // IQ types - these are approximate/placeholder values
-            TensorType::IQ1_S | TensorType::IQ1_M => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 1.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: 8, // Approximate
-            },
-            TensorType::IQ2_XXS | TensorType::IQ2_XS | TensorType::IQ2_S => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 2.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<IQ2_XXSBlock>(),
-            },
-            TensorType::IQ3_XXS | TensorType::IQ3_S => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 3.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<IQ3_XXSBlock>(),
-            },
-            TensorType::IQ4_NL | TensorType::IQ4_XS | TensorType::IQ4_UNI => Self {
-                tensor_type,
-                block_size: 32,
-                bits_per_weight: 4.0,
-                has_scales: true,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: mem::size_of::<IQ4_NLBlock>(),
-            },
-            // Non-quantized types
-            _ => Self {
-                tensor_type,
-                block_size: 1,
-                bits_per_weight: tensor_type.element_size() as f32 * 8.0,
-                has_scales: false,
-                has_min: false,
-                has_high_bits: false,
-                block_size_bytes: tensor_type.element_size(),
-            },
+        Self {
+            tensor_type,
+            block_size,
+            bits_per_weight,
+            has_scales,
+            has_min,
+            has_high_bits,
+            block_size_bytes,
         }
     }
 
-    /// Calculate the storage size for a given number of elements
-    pub fn calculate_storage_size(&self, element_count: u64) -> u64 {
-        if self.block_size <= 1 {
-            // Non-quantized type
-            return element_count * self.block_size_bytes as u64;
-        }
+    /// Whether GGUF readers and writers support this tensor type.
+    pub fn is_supported(&self) -> bool {
+        self.block_size > 0 && self.block_size_bytes > 0
+    }
 
-        // Block-based quantization
-        let num_blocks = element_count.div_ceil(self.block_size as u64);
-        num_blocks * self.block_size_bytes as u64
+    /// Calculate the storage size for a given number of elements.
+    ///
+    /// Returns `None` for unsupported tensor types and on arithmetic overflow.
+    pub fn calculate_storage_size(&self, element_count: u64) -> Option<u64> {
+        self.tensor_type.calculate_size(element_count)
     }
 
     /// Calculate the number of blocks needed for a given element count
     pub fn calculate_num_blocks(&self, element_count: u64) -> u64 {
+        if self.block_size == 0 {
+            return 0;
+        }
         if self.block_size <= 1 {
             return element_count;
         }
 
         element_count.div_ceil(self.block_size as u64)
-    }
-
-    /// Check if this quantization format is lossless
-    pub fn is_lossless(&self) -> bool {
-        // Only non-quantized integer and floating point types are lossless
-        matches!(
-            self.tensor_type,
-            TensorType::F32
-                | TensorType::F64
-                | TensorType::F16
-                | TensorType::BF16
-                | TensorType::I8
-                | TensorType::I16
-                | TensorType::I32
-                | TensorType::I64
-        )
-    }
-
-    /// Get the theoretical dynamic range for this quantization
-    pub fn dynamic_range_bits(&self) -> f32 {
-        if self.is_lossless() {
-            self.bits_per_weight
-        } else {
-            // Quantized types have reduced dynamic range
-            self.bits_per_weight - 1.0 // Reserve 1 bit for sign typically
-        }
-    }
-
-    /// Estimate the quantization error (higher is worse)
-    pub fn quantization_error_estimate(&self) -> f32 {
-        if self.is_lossless() {
-            0.0
-        } else {
-            // Simple estimate: error increases exponentially as bits decrease
-            powf_helper(2.0, 8.0 - self.bits_per_weight)
-        }
     }
 }
 
@@ -498,42 +217,13 @@ impl QuantizationUtils {
             TensorType::IQ2_S,
             TensorType::IQ4_XS,
             TensorType::IQ1_M,
-            TensorType::IQ4_UNI,
+            TensorType::TQ1_0,
+            TensorType::TQ2_0,
+            TensorType::MXFP4,
+            TensorType::NVFP4,
+            TensorType::Q1_0,
+            TensorType::Q2_0,
         ]
-    }
-
-    /// Get recommended quantization for model size and quality requirements
-    pub fn recommend_quantization(
-        model_size_gb: f32,
-        target_quality: f32, // 0.0 = maximum compression, 1.0 = maximum quality
-    ) -> TensorType {
-        // Quality-based selection
-        if target_quality > 0.9 {
-            return TensorType::F16;
-        }
-
-        if target_quality > 0.8 {
-            return if model_size_gb > 7.0 { TensorType::Q6_K } else { TensorType::Q8_0 };
-        }
-
-        if target_quality > 0.6 {
-            return if model_size_gb > 13.0 { TensorType::Q5_K } else { TensorType::Q5_0 };
-        }
-
-        if target_quality > 0.4 {
-            return if model_size_gb > 13.0 { TensorType::Q4_K } else { TensorType::Q4_0 };
-        }
-
-        if target_quality > 0.2 {
-            return TensorType::Q3_K;
-        }
-
-        // Maximum compression
-        if model_size_gb > 30.0 {
-            TensorType::IQ2_XS
-        } else {
-            TensorType::Q2_K
-        }
     }
 
     /// Compare two quantization formats
@@ -541,7 +231,8 @@ impl QuantizationUtils {
         let params_a = QuantizationParams::for_type(type_a);
         let params_b = QuantizationParams::for_type(type_b);
 
-        // Compare by bits per weight (higher is better quality)
+        // Compare by physical storage rate. This does not attempt to rank
+        // perceptual quality across different quantization families.
         params_a
             .bits_per_weight
             .partial_cmp(&params_b.bits_per_weight)
@@ -567,37 +258,25 @@ impl QuantizationUtils {
         best_type
     }
 
-    /// Check if a quantization type is considered modern/recommended
-    pub fn is_modern_quantization(tensor_type: TensorType) -> bool {
-        matches!(
-            tensor_type,
-            TensorType::Q4_K
-                | TensorType::Q5_K
-                | TensorType::Q6_K
-                | TensorType::Q8_K
-                | TensorType::IQ2_XXS
-                | TensorType::IQ2_XS
-                | TensorType::IQ3_XXS
-                | TensorType::IQ4_NL
-                | TensorType::IQ3_S
-                | TensorType::IQ2_S
-                | TensorType::IQ4_XS
-                | TensorType::IQ1_S
-                | TensorType::IQ1_M
-                | TensorType::IQ4_UNI
-        )
-    }
-
-    /// Get quantization family (legacy, k-quant, i-quant)
-    pub fn get_quantization_family(tensor_type: TensorType) -> &'static str {
-        if tensor_type.is_k_quant() {
-            "k-quant"
+    /// Get the storage family for a supported tensor type.
+    ///
+    /// Removed GGML types and the SDK-only `IQ4_UNI` variant return `None`.
+    pub fn get_quantization_family(tensor_type: TensorType) -> Option<&'static str> {
+        tensor_type.block_size_bytes()?;
+        if matches!(tensor_type, TensorType::TQ1_0 | TensorType::TQ2_0) {
+            Some("ternary")
+        } else if matches!(tensor_type, TensorType::MXFP4 | TensorType::NVFP4) {
+            Some("microscaling")
+        } else if matches!(tensor_type, TensorType::Q1_0 | TensorType::Q2_0) {
+            Some("block")
+        } else if tensor_type.is_k_quant() {
+            Some("k-quant")
         } else if tensor_type.is_iq_quant() {
-            "i-quant"
+            Some("i-quant")
         } else if tensor_type.is_quantized() {
-            "legacy"
+            Some("legacy")
         } else {
-            "unquantized"
+            Some("unquantized")
         }
     }
 }
@@ -607,7 +286,7 @@ impl std::fmt::Display for QuantizationParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "{} (block_size: {}, {:.1} bits/weight, {} bytes/block)",
+            "{} (block_size: {}, {:.3} storage bits/weight, {} bytes/block)",
             self.tensor_type.name(),
             self.block_size,
             self.bits_per_weight,
@@ -621,7 +300,7 @@ impl fmt::Display for QuantizationParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "QuantizationParams {{ type: {:?}, block_size: {}, block_size_bytes: {}, bits_per_weight: {} }}",
+            "QuantizationParams {{ type: {:?}, block_size: {}, block_size_bytes: {}, storage_bits_per_weight: {} }}",
             self.tensor_type,
             self.block_size,
             self.block_size_bytes,
@@ -633,13 +312,44 @@ impl fmt::Display for QuantizationParams {
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::*;
+    use core::mem;
+
+    const QUANT_GEOMETRY: &[(TensorType, usize, usize)] = &[
+        (TensorType::Q4_0, 32, 18),
+        (TensorType::Q4_1, 32, 20),
+        (TensorType::Q5_0, 32, 22),
+        (TensorType::Q5_1, 32, 24),
+        (TensorType::Q8_0, 32, 34),
+        (TensorType::Q8_1, 32, 36),
+        (TensorType::Q2_K, 256, 84),
+        (TensorType::Q3_K, 256, 110),
+        (TensorType::Q4_K, 256, 144),
+        (TensorType::Q5_K, 256, 176),
+        (TensorType::Q6_K, 256, 210),
+        (TensorType::Q8_K, 256, 292),
+        (TensorType::IQ2_XXS, 256, 66),
+        (TensorType::IQ2_XS, 256, 74),
+        (TensorType::IQ3_XXS, 256, 98),
+        (TensorType::IQ1_S, 256, 50),
+        (TensorType::IQ4_NL, 32, 18),
+        (TensorType::IQ3_S, 256, 110),
+        (TensorType::IQ2_S, 256, 82),
+        (TensorType::IQ4_XS, 256, 136),
+        (TensorType::IQ1_M, 256, 56),
+        (TensorType::TQ1_0, 256, 54),
+        (TensorType::TQ2_0, 256, 66),
+        (TensorType::MXFP4, 32, 17),
+        (TensorType::NVFP4, 64, 36),
+        (TensorType::Q1_0, 128, 18),
+        (TensorType::Q2_0, 64, 18),
+    ];
 
     #[test]
     fn test_quantization_params_q4_0() {
         let params = QuantizationParams::for_type(TensorType::Q4_0);
         assert_eq!(params.tensor_type, TensorType::Q4_0);
         assert_eq!(params.block_size, 32);
-        assert_eq!(params.bits_per_weight, 4.0);
+        assert_eq!(params.bits_per_weight, 4.5);
         assert!(params.has_scales);
         assert!(!params.has_min);
         assert!(!params.has_high_bits);
@@ -650,7 +360,7 @@ mod tests {
     fn test_quantization_params_q5_1() {
         let params = QuantizationParams::for_type(TensorType::Q5_1);
         assert_eq!(params.block_size, 32);
-        assert_eq!(params.bits_per_weight, 5.0);
+        assert_eq!(params.bits_per_weight, 6.0);
         assert!(params.has_scales);
         assert!(params.has_min);
         assert!(params.has_high_bits);
@@ -660,7 +370,17 @@ mod tests {
     fn test_quantization_params_k_quant() {
         let params = QuantizationParams::for_type(TensorType::Q4_K);
         assert_eq!(params.block_size, 256); // K-quants use larger blocks
-        assert_eq!(params.bits_per_weight, 4.0);
+        assert_eq!(params.bits_per_weight, 4.5);
+    }
+
+    #[test]
+    fn test_k_quant_minimum_flags() {
+        for tensor_type in [TensorType::Q2_K, TensorType::Q4_K, TensorType::Q5_K] {
+            assert!(QuantizationParams::for_type(tensor_type).has_min);
+        }
+        for tensor_type in [TensorType::Q3_K, TensorType::Q6_K, TensorType::Q8_K] {
+            assert!(!QuantizationParams::for_type(tensor_type).has_min);
+        }
     }
 
     #[test]
@@ -669,48 +389,25 @@ mod tests {
 
         // One block worth of elements
         let size_32 = params.calculate_storage_size(32);
-        assert_eq!(size_32, params.block_size_bytes as u64);
+        assert_eq!(size_32, Some(params.block_size_bytes as u64));
 
         // Two blocks worth
         let size_64 = params.calculate_storage_size(64);
-        assert_eq!(size_64, 2 * params.block_size_bytes as u64);
+        assert_eq!(size_64, Some(2 * params.block_size_bytes as u64));
 
         // Partial block (should round up)
         let size_33 = params.calculate_storage_size(33);
-        assert_eq!(size_33, 2 * params.block_size_bytes as u64);
-    }
-
-    #[test]
-    fn test_quantization_properties() {
-        let f32_params = QuantizationParams::for_type(TensorType::F32);
-        assert!(f32_params.is_lossless());
-        assert_eq!(f32_params.quantization_error_estimate(), 0.0);
-
-        let q4_params = QuantizationParams::for_type(TensorType::Q4_0);
-        assert!(!q4_params.is_lossless());
-        assert!(q4_params.quantization_error_estimate() > 0.0);
+        assert_eq!(size_33, Some(2 * params.block_size_bytes as u64));
     }
 
     #[test]
     fn test_quantization_utils() {
         let all_quantized = QuantizationUtils::all_quantized_types();
-        assert!(!all_quantized.is_empty());
-        assert!(all_quantized.contains(&TensorType::Q4_0));
-        assert!(all_quantized.contains(&TensorType::Q4_K));
-        assert!(!all_quantized.contains(&TensorType::F32));
-    }
-
-    #[test]
-    fn test_quantization_recommendation() {
-        // High quality should prefer less aggressive quantization
-        let high_quality = QuantizationUtils::recommend_quantization(7.0, 0.9);
-        let params = QuantizationParams::for_type(high_quality);
-        assert!(params.bits_per_weight >= 8.0);
-
-        // Low quality should prefer aggressive quantization
-        let low_quality = QuantizationUtils::recommend_quantization(7.0, 0.1);
-        let params = QuantizationParams::for_type(low_quality);
-        assert!(params.bits_per_weight <= 4.0);
+        let expected: Vec<_> =
+            QUANT_GEOMETRY.iter().map(|(tensor_type, _, _)| *tensor_type).collect();
+        assert_eq!(all_quantized, expected);
+        assert!(!all_quantized.contains(&TensorType::IQ4_UNI));
+        assert!(!all_quantized.contains(&TensorType::Q4_2));
     }
 
     #[test]
@@ -727,9 +424,9 @@ mod tests {
 
     #[test]
     fn test_closest_quantization() {
-        let closest_to_4 = QuantizationUtils::find_closest_quantization(4.0);
-        let params = QuantizationParams::for_type(closest_to_4);
-        assert_eq!(params.bits_per_weight, 4.0);
+        let closest_to_4_5 = QuantizationUtils::find_closest_quantization(4.5);
+        let params = QuantizationParams::for_type(closest_to_4_5);
+        assert_eq!(params.bits_per_weight, 4.5);
 
         let closest_to_6 = QuantizationUtils::find_closest_quantization(6.0);
         let params = QuantizationParams::for_type(closest_to_6);
@@ -737,31 +434,88 @@ mod tests {
     }
 
     #[test]
-    fn test_modern_quantization() {
-        assert!(QuantizationUtils::is_modern_quantization(TensorType::Q4_K));
-        assert!(QuantizationUtils::is_modern_quantization(TensorType::IQ2_XS));
-        assert!(!QuantizationUtils::is_modern_quantization(TensorType::Q4_0));
-        assert!(!QuantizationUtils::is_modern_quantization(TensorType::F32));
-    }
-
-    #[test]
     fn test_quantization_families() {
-        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::Q4_0), "legacy");
-        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::Q4_K), "k-quant");
-        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::IQ2_XS), "i-quant");
-        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::F32), "unquantized");
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::Q4_0), Some("legacy"));
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::Q4_K), Some("k-quant"));
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::IQ2_XS), Some("i-quant"));
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::TQ1_0), Some("ternary"));
+        assert_eq!(
+            QuantizationUtils::get_quantization_family(TensorType::MXFP4),
+            Some("microscaling")
+        );
+        assert_eq!(
+            QuantizationUtils::get_quantization_family(TensorType::NVFP4),
+            Some("microscaling")
+        );
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::Q1_0), Some("block"));
+        assert_eq!(
+            QuantizationUtils::get_quantization_family(TensorType::F32),
+            Some("unquantized")
+        );
+        assert_eq!(QuantizationUtils::get_quantization_family(TensorType::IQ4_UNI), None);
     }
 
     #[test]
     fn test_block_struct_sizes() {
         use blocks::*;
 
-        // Verify expected block sizes for common formats
-        assert_eq!(mem::size_of::<Q4_0Block>(), 18);
-        assert_eq!(mem::size_of::<Q4_1Block>(), 20);
-        assert_eq!(mem::size_of::<Q5_0Block>(), 22);
-        assert_eq!(mem::size_of::<Q5_1Block>(), 24);
-        assert_eq!(mem::size_of::<Q8_0Block>(), 34);
+        macro_rules! assert_block_size {
+            ($block:ty, $size:expr) => {{
+                assert_eq!(mem::size_of::<$block>(), $size);
+                assert_eq!(<$block>::SIZE, $size);
+            }};
+        }
+
+        assert_block_size!(Q4_0Block, 18);
+        assert_block_size!(Q4_1Block, 20);
+        assert_block_size!(Q5_0Block, 22);
+        assert_block_size!(Q5_1Block, 24);
+        assert_block_size!(Q8_0Block, 34);
+        assert_block_size!(Q8_1Block, 36);
+        assert_block_size!(Q2_KBlock, 84);
+        assert_block_size!(Q3_KBlock, 110);
+        assert_block_size!(Q4_KBlock, 144);
+        assert_block_size!(Q5_KBlock, 176);
+        assert_block_size!(Q6_KBlock, 210);
+        assert_block_size!(Q8_KBlock, 292);
+        assert_block_size!(IQ2_XXSBlock, 66);
+        assert_block_size!(IQ2_XSBlock, 74);
+        assert_block_size!(IQ3_XXSBlock, 98);
+        assert_block_size!(IQ1_SBlock, 50);
+        assert_block_size!(IQ4_NLBlock, 18);
+        assert_block_size!(IQ3_SBlock, 110);
+        assert_block_size!(IQ2_SBlock, 82);
+        assert_block_size!(IQ4_XSBlock, 136);
+        assert_block_size!(IQ1_MBlock, 56);
+        assert_block_size!(TQ1_0Block, 54);
+        assert_block_size!(TQ2_0Block, 66);
+        assert_block_size!(MXFP4Block, 17);
+        assert_block_size!(NVFP4Block, 36);
+        assert_block_size!(Q1_0Block, 18);
+        assert_block_size!(Q2_0Block, 18);
+    }
+
+    #[test]
+    fn test_all_supported_quantization_geometry_is_consistent() {
+        for &(tensor_type, block_size, block_bytes) in QUANT_GEOMETRY {
+            let params = QuantizationParams::for_type(tensor_type);
+            assert!(params.is_supported(), "{}", tensor_type.name());
+            assert!(tensor_type.is_quantized(), "{}", tensor_type.name());
+            assert_eq!(tensor_type.element_size(), None, "{}", tensor_type.name());
+            assert_eq!(params.block_size, block_size, "{}", tensor_type.name());
+            assert_eq!(params.block_size_bytes, block_bytes, "{}", tensor_type.name());
+            assert_eq!(tensor_type.calculate_size(block_size as u64), Some(block_bytes as u64));
+            let expected_bpw = block_bytes as f32 * 8.0 / block_size as f32;
+            assert!((params.bits_per_weight - expected_bpw).abs() < f32::EPSILON);
+        }
+
+        for unsupported in [TensorType::Q4_2, TensorType::Q4_3, TensorType::IQ4_UNI] {
+            let params = QuantizationParams::for_type(unsupported);
+            assert!(!params.is_supported());
+            assert_eq!(params.block_size, 0);
+            assert_eq!(params.block_size_bytes, 0);
+            assert_eq!(params.bits_per_weight, 0.0);
+        }
     }
 
     #[test]
@@ -770,6 +524,6 @@ mod tests {
         let display = format!("{}", params);
         assert!(display.contains("Q4_K"));
         assert!(display.contains("256"));
-        assert!(display.contains("4.0"));
+        assert!(display.contains("4.500"));
     }
 }

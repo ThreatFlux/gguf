@@ -250,9 +250,8 @@ mod error_propagation_tests {
             let tensor_data = TensorData::new_owned(data);
 
             // Create tensor info that expects a different size
-            let shape =
-                TensorShape::new(vec![expected_elements / tensor_type.element_size() as u64])
-                    .unwrap();
+            let element_size = tensor_type.element_size().expect("test uses a scalar type") as u64;
+            let shape = TensorShape::new(vec![expected_elements / element_size]).unwrap();
             let info = TensorInfo::new("test".to_string(), shape, tensor_type, 0);
 
             // This validation would typically happen in the builder or writer
@@ -273,23 +272,15 @@ mod error_propagation_tests {
 
         let mut metadata = Metadata::new();
 
-        // Add extremely long key (should work but test limits)
+        // Add a key longer than the GGUF limit.
         let long_key = "x".repeat(65536); // 64KB key
         metadata.insert(long_key.clone(), MetadataValue::U32(1));
 
-        // Serialization should handle this gracefully
+        // Serialization must reject it before emitting a partial entry.
         let mut bytes = Vec::new();
         let result = metadata.write_to(&mut bytes);
-        assert!(result.is_ok());
-        assert!(!bytes.is_empty());
-
-        // Should be able to deserialize
-        let mut cursor = Cursor::new(&bytes);
-        let deserialized_result = Metadata::read_from(&mut cursor, 1);
-        assert!(deserialized_result.is_ok());
-
-        let deserialized = deserialized_result.unwrap();
-        assert_eq!(deserialized.get_u64(&long_key), Some(1));
+        assert!(result.is_err());
+        assert!(bytes.is_empty());
     }
 
     #[test]
@@ -384,7 +375,9 @@ mod custom_error_tests {
         let _shape = TensorShape::new(vec![32]); // 32 elements = 1 block
 
         // This should be caught in validation
-        let expected_size = TensorType::Q4_0.calculate_size(32) as usize; // 32 elements = 1 block = 18 bytes
+        let expected_size = TensorType::Q4_0
+            .calculate_size(32)
+            .expect("Q4_0 storage geometry is supported") as usize; // 32 elements = 1 block = 18 bytes
         assert_ne!(invalid_q4_data.len(), expected_size);
 
         // Test valid quantized data

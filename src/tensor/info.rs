@@ -1,6 +1,7 @@
 //! Tensor information and metadata structures
 
 use crate::error::{GGUFError, Result};
+use crate::format::constants::{GGUF_MAX_DIMENSIONS, GGUF_MAX_TENSOR_NAME_LENGTH};
 use crate::format::types::GGUFTensorType as TensorType;
 use crate::tensor::{TensorData, TensorShape};
 
@@ -23,61 +24,28 @@ use alloc::{
 #[cfg(not(feature = "std"))]
 use core::fmt;
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-use libm::{powf, sqrtf};
+use libm::sqrt;
 
-// Helper function for exponentiation that works in both std and no_std
+// Helper for the single-pass F32 statistics implementation.
 #[cfg(feature = "std")]
-fn powi_f32(base: f32, exp: i32) -> f32 {
-    base.powi(exp)
+fn sqrt_f64(value: f64) -> f64 {
+    value.sqrt()
 }
 
 #[cfg(all(not(feature = "std"), feature = "alloc"))]
-fn powi_f32(base: f32, exp: i32) -> f32 {
-    powf(base, exp as f32)
+fn sqrt_f64(value: f64) -> f64 {
+    sqrt(value)
 }
 
 #[cfg(not(any(feature = "std", feature = "alloc")))]
-fn powi_f32(base: f32, exp: i32) -> f32 {
-    // Fallback implementation for no_std + no_alloc
-    let mut result = 1.0;
-    let mut base = base;
-    let mut exp = exp;
-
-    if exp < 0 {
-        base = 1.0 / base;
-        exp = -exp;
-    }
-
-    while exp > 0 {
-        if exp % 2 == 1 {
-            result *= base;
-        }
-        base *= base;
-        exp /= 2;
-    }
-    result
-}
-
-// Helper function for sqrt that works in both std and no_std
-#[cfg(feature = "std")]
-fn sqrt_f32(x: f32) -> f32 {
-    x.sqrt()
-}
-
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
-fn sqrt_f32(x: f32) -> f32 {
-    sqrtf(x)
-}
-
-#[cfg(not(any(feature = "std", feature = "alloc")))]
-fn sqrt_f32(x: f32) -> f32 {
+fn sqrt_f64(value: f64) -> f64 {
     // Newton-Raphson method for square root
-    if x == 0.0 {
+    if value == 0.0 {
         return 0.0;
     }
-    let mut guess = x / 2.0;
+    let mut guess = value / 2.0;
     for _ in 0..10 {
-        guess = (guess + x / guess) / 2.0;
+        guess = (guess + value / guess) / 2.0;
     }
     guess
 }
@@ -129,7 +97,7 @@ pub struct TensorStats {
     pub std_deviation: Option<f64>,
     /// Number of zero elements
     pub zero_count: Option<u64>,
-    /// Data checksum for integrity checking
+    /// Non-cryptographic data checksum for caller-side comparison
     pub checksum: Option<u32>,
 }
 
@@ -137,13 +105,21 @@ pub struct TensorStats {
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TensorLayout {
-    /// Memory layout (row-major, column-major, etc.)
+    /// Memory layout convention used by the stride vector
     pub memory_layout: MemoryLayout,
-    /// Stride information
+    /// Byte strides in descriptor dimension order.
+    ///
+    /// For quantized tensors, stride 0 is the byte size of one quantization
+    /// block rather than the size of an individually addressable weight.
     pub strides: Vec<u64>,
     /// Whether the tensor is contiguous in memory
     pub is_contiguous: bool,
-    /// Alignment requirements
+    /// Intrinsic alignment of the encoded byte representation.
+    ///
+    /// This is always 1 because this type describes serialized bytes, not a
+    /// host ABI type. GGUF tensor-offset alignment is controlled separately by
+    /// the file's `general.alignment` metadata and is enforced by readers and
+    /// writers.
     pub alignment: usize,
 }
 
@@ -151,6 +127,8 @@ pub struct TensorLayout {
 #[cfg_attr(feature = "std", derive(Serialize, Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MemoryLayout {
+    /// GGML/GGUF layout: descriptor dimension 0 is contiguous
+    Ggml,
     /// Row-major (C-style) layout
     RowMajor,
     /// Column-major (Fortran-style) layout
@@ -251,8 +229,49 @@ impl TensorInfo {
     }
 
     /// Calculate the expected size of the tensor data in bytes
+    ///
+    /// Returns `u64::MAX` if the shape/type combination cannot be represented. Parsing and
+    /// writing code should use [`Self::checked_expected_data_size`] so malformed input is rejected.
     pub fn expected_data_size(&self) -> u64 {
-        self.tensor_type.calculate_size(self.element_count())
+        self.checked_expected_data_size().unwrap_or(u64::MAX)
+    }
+
+    /// Calculate the expected tensor size, rejecting invalid block layouts and overflow.
+    pub fn checked_expected_data_size(&self) -> Result<u64> {
+        let element_count = self.shape.checked_element_count().ok_or_else(|| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' element count overflows u64",
+                self.name
+            ))
+        })?;
+
+        if self.tensor_type.is_quantized() {
+            let block_size = self.tensor_type.block_size();
+            let first_dimension = self.shape.dims().first().copied().unwrap_or(0);
+            if block_size == 0 {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' uses unsupported tensor type {}",
+                    self.name,
+                    self.tensor_type.name()
+                )));
+            }
+            if first_dimension % block_size as u64 != 0 {
+                return Err(GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' first dimension {} is not divisible by {} for {}",
+                    self.name,
+                    first_dimension,
+                    block_size,
+                    self.tensor_type.name()
+                )));
+            }
+        }
+
+        self.tensor_type.checked_calculate_size(element_count).ok_or_else(|| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' data size overflows u64 or uses an unsupported type",
+                self.name
+            ))
+        })
     }
 
     /// Validate that the tensor info is consistent
@@ -262,14 +281,39 @@ impl TensorInfo {
             return Err(GGUFError::InvalidTensorData("Tensor name cannot be empty".to_string()));
         }
 
+        if self.name.len() > GGUF_MAX_TENSOR_NAME_LENGTH {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' name is {} bytes; maximum is {}",
+                self.name,
+                self.name.len(),
+                GGUF_MAX_TENSOR_NAME_LENGTH
+            )));
+        }
+
         // Validate shape
         if self.shape.dimensions.is_empty() {
             return Err(GGUFError::InvalidTensorData("Tensor shape cannot be empty".to_string()));
         }
 
+        if self.shape.ndim() > GGUF_MAX_DIMENSIONS {
+            return Err(GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' has too many dimensions: {}",
+                self.name,
+                self.shape.ndim()
+            )));
+        }
+
+        let expected_size_u64 = self.checked_expected_data_size()?;
+
         // Validate data size if data is present
         if let Some(data) = &self.data {
-            let expected_size = self.expected_data_size() as usize;
+            data.validate()?;
+            let expected_size = usize::try_from(expected_size_u64).map_err(|_| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' data size does not fit this platform",
+                    self.name
+                ))
+            })?;
             let actual_size = data.len();
 
             if actual_size != expected_size {
@@ -296,36 +340,81 @@ impl TensorInfo {
         &mut self.metadata
     }
 
-    /// Calculate tensor layout information
-    pub fn calculate_layout(&self) -> TensorLayout {
-        let element_strides = self.shape.calculate_strides();
-        let byte_strides = element_strides
-            .iter()
-            .map(|&s| s * self.tensor_type.element_size() as u64)
-            .collect();
+    /// Calculate tensor layout information using canonical GGML block geometry.
+    ///
+    /// GGUF dimensions follow GGML ordering, where dimension 0 is contiguous.
+    /// For scalar types, `nb[0]` is the scalar byte size. For quantized types,
+    /// `nb[0]` is the encoded block byte size and `nb[1]` advances over all
+    /// blocks in dimension 0.
+    pub fn calculate_layout(&self) -> Result<TensorLayout> {
+        self.validate()?;
 
-        TensorLayout {
-            memory_layout: MemoryLayout::RowMajor, // Default to row-major
+        let block_size = u64::try_from(self.tensor_type.block_size()).map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' block size does not fit u64",
+                self.name
+            ))
+        })?;
+        let block_bytes = u64::try_from(self.tensor_type.block_size_bytes().ok_or_else(|| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' uses unsupported tensor type {}",
+                self.name,
+                self.tensor_type.name()
+            ))
+        })?)
+        .map_err(|_| {
+            GGUFError::InvalidTensorData(format!(
+                "Tensor '{}' block byte size does not fit u64",
+                self.name
+            ))
+        })?;
+
+        let dimensions = self.shape.dims();
+        let mut byte_strides = Vec::with_capacity(dimensions.len());
+        byte_strides.push(block_bytes);
+
+        if dimensions.len() > 1 {
+            let blocks_in_dim0 = dimensions[0] / block_size;
+            let mut stride = block_bytes.checked_mul(blocks_in_dim0).ok_or_else(|| {
+                GGUFError::InvalidTensorData(format!(
+                    "Tensor '{}' byte stride overflows u64",
+                    self.name
+                ))
+            })?;
+            byte_strides.push(stride);
+
+            for &dimension in &dimensions[1..dimensions.len() - 1] {
+                stride = stride.checked_mul(dimension).ok_or_else(|| {
+                    GGUFError::InvalidTensorData(format!(
+                        "Tensor '{}' byte stride overflows u64",
+                        self.name
+                    ))
+                })?;
+                byte_strides.push(stride);
+            }
+        }
+
+        Ok(TensorLayout {
+            memory_layout: MemoryLayout::Ggml,
             strides: byte_strides,
             is_contiguous: self.shape.is_contiguous(),
-            alignment: self.tensor_type.element_size(),
-        }
+            alignment: 1,
+        })
     }
 
-    /// Calculate basic statistics if data is available and numeric
+    /// Calculate decoded F32 statistics, or checksum-only information for
+    /// encoded types that this crate does not decode.
     pub fn calculate_stats(&self) -> Option<TensorStats> {
         let data = self.data.as_ref()?;
 
-        // Only calculate stats for floating point types
         match self.tensor_type {
             TensorType::F32 => self.calculate_f32_stats(data),
-            TensorType::F16 | TensorType::BF16 => self.calculate_f16_stats(data),
             _ => Some(TensorStats {
                 min_value: None,
                 max_value: None,
                 mean_value: None,
                 std_deviation: None,
-                zero_count: self.count_zero_bytes(data),
+                zero_count: None,
                 checksum: Some(data.checksum()),
             }),
         }
@@ -338,52 +427,44 @@ impl TensorInfo {
             return None;
         }
 
-        let values: Vec<f32> = bytes
-            .chunks_exact(4)
-            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-            .collect();
-
-        if values.is_empty() {
+        if bytes.is_empty() {
             return None;
         }
 
-        let min_val = values.iter().fold(f32::INFINITY, |a, &b| a.min(b));
-        let max_val = values.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-        let mean = values.iter().sum::<f32>() / values.len() as f32;
+        let mut count = 0u64;
+        let mut zero_count = 0u64;
+        let mut min_value = f64::INFINITY;
+        let mut max_value = f64::NEG_INFINITY;
+        let mut mean = 0.0f64;
+        let mut squared_deviation_sum = 0.0f64;
 
-        let variance =
-            values.iter().map(|&x| powi_f32(x - mean, 2)).sum::<f32>() / values.len() as f32;
-        let std_dev = sqrt_f32(variance);
+        for chunk in bytes.chunks_exact(4) {
+            let value = f32::from_le_bytes(chunk.try_into().ok()?) as f64;
+            count += 1;
+            if value == 0.0 {
+                zero_count += 1;
+            }
+            min_value = min_value.min(value);
+            max_value = max_value.max(value);
 
-        let zero_count = values.iter().filter(|&&x| x == 0.0).count() as u64;
+            // Welford's algorithm avoids both a temporary value buffer and
+            // the cancellation error of sum-of-squares variance formulas.
+            let delta = value - mean;
+            mean += delta / count as f64;
+            let delta_after_mean = value - mean;
+            squared_deviation_sum += delta * delta_after_mean;
+        }
+
+        let variance = squared_deviation_sum / count as f64;
 
         Some(TensorStats {
-            min_value: Some(min_val as f64),
-            max_value: Some(max_val as f64),
-            mean_value: Some(mean as f64),
-            std_deviation: Some(std_dev as f64),
+            min_value: Some(min_value),
+            max_value: Some(max_value),
+            mean_value: Some(mean),
+            std_deviation: Some(sqrt_f64(variance)),
             zero_count: Some(zero_count),
             checksum: Some(data.checksum()),
         })
-    }
-
-    /// Calculate statistics for F16/BF16 data (simplified)
-    fn calculate_f16_stats(&self, data: &TensorData) -> Option<TensorStats> {
-        // For now, just return basic info since F16 conversion is complex
-        Some(TensorStats {
-            min_value: None,
-            max_value: None,
-            mean_value: None,
-            std_deviation: None,
-            zero_count: self.count_zero_bytes(data),
-            checksum: Some(data.checksum()),
-        })
-    }
-
-    /// Count zero bytes in data
-    fn count_zero_bytes(&self, data: &TensorData) -> Option<u64> {
-        let zero_count = data.as_slice().iter().filter(|&&b| b == 0).count();
-        Some(zero_count as u64)
     }
 
     /// Get a human-readable summary
@@ -407,7 +488,11 @@ impl TensorInfo {
 
     /// Get memory usage information
     pub fn memory_usage(&self) -> TensorMemoryInfo {
-        let expected_size = self.expected_data_size() as usize;
+        let expected_size = self
+            .checked_expected_data_size()
+            .ok()
+            .and_then(|size| usize::try_from(size).ok())
+            .unwrap_or(usize::MAX);
         let loaded_size = self.data.as_ref().map_or(0, |d| d.len());
 
         TensorMemoryInfo {
@@ -415,7 +500,7 @@ impl TensorInfo {
             expected_bytes: expected_size,
             loaded_bytes: loaded_size,
             is_loaded: self.has_data(),
-            compression_ratio: if expected_size > 0 {
+            loaded_fraction: if expected_size > 0 {
                 loaded_size as f32 / expected_size as f32
             } else {
                 0.0
@@ -436,8 +521,8 @@ pub struct TensorMemoryInfo {
     pub loaded_bytes: usize,
     /// Whether data is loaded
     pub is_loaded: bool,
-    /// Compression ratio (actual/expected)
-    pub compression_ratio: f32,
+    /// Fraction of the expected payload currently loaded (`loaded / expected`)
+    pub loaded_fraction: f32,
 }
 
 impl TensorMetadata {
@@ -517,6 +602,7 @@ impl fmt::Display for TensorInfo {
 impl std::fmt::Display for MemoryLayout {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            MemoryLayout::Ggml => write!(f, "GGML (dimension 0 contiguous)"),
             MemoryLayout::RowMajor => write!(f, "Row-Major"),
             MemoryLayout::ColumnMajor => write!(f, "Column-Major"),
             MemoryLayout::Custom => write!(f, "Custom"),
@@ -528,6 +614,7 @@ impl std::fmt::Display for MemoryLayout {
 impl fmt::Display for MemoryLayout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            MemoryLayout::Ggml => write!(f, "GgmlDim0Contiguous"),
             MemoryLayout::RowMajor => write!(f, "RowMajor"),
             MemoryLayout::ColumnMajor => write!(f, "ColumnMajor"),
             MemoryLayout::Custom => write!(f, "Custom"),
@@ -626,6 +713,30 @@ mod tests {
         assert!(tensor_info.validate().is_ok());
     }
 
+    #[cfg(feature = "mmap")]
+    #[test]
+    fn test_invalid_mapped_data_is_rejected() {
+        use memmap2::Mmap;
+        use std::{fs::File, io::Write, sync::Arc};
+        use tempfile::NamedTempFile;
+
+        let mut file = NamedTempFile::new().unwrap();
+        file.write_all(&[0u8; 4]).unwrap();
+        file.flush().unwrap();
+        let mapped_file = File::open(file.path()).unwrap();
+        let mmap = Arc::new(unsafe { Mmap::map(&mapped_file).unwrap() });
+        let data = TensorData::Mapped { mmap, offset: usize::MAX, length: 4 };
+        let info = TensorInfo::with_data(
+            "mapped".to_string(),
+            TensorShape::new(vec![1]).unwrap(),
+            TensorType::F32,
+            0,
+            data,
+        );
+
+        assert!(info.validate().is_err());
+    }
+
     #[test]
     fn test_tensor_info_validation() {
         let shape = TensorShape::new(vec![2]).unwrap();
@@ -673,11 +784,40 @@ mod tests {
         let shape = TensorShape::new(vec![2, 3]).unwrap();
         let tensor_info = TensorInfo::new("test".to_string(), shape, TensorType::F32, 0);
 
-        let layout = tensor_info.calculate_layout();
-        assert_eq!(layout.memory_layout, MemoryLayout::RowMajor);
-        assert_eq!(layout.strides, vec![12, 4]); // 3*4 bytes, 1*4 bytes
+        let layout = tensor_info.calculate_layout().unwrap();
+        assert_eq!(layout.memory_layout, MemoryLayout::Ggml);
+        assert_eq!(layout.strides, vec![4, 8]);
         assert!(layout.is_contiguous);
-        assert_eq!(layout.alignment, 4); // F32 alignment
+        assert_eq!(layout.alignment, 1);
+    }
+
+    #[test]
+    fn test_scalar_tensor_layout() {
+        let tensor_info =
+            TensorInfo::new("scalar".to_string(), TensorShape::scalar(), TensorType::F32, 0);
+
+        let layout = tensor_info.calculate_layout().unwrap();
+        assert_eq!(layout.memory_layout, MemoryLayout::Ggml);
+        assert_eq!(layout.strides, vec![4]);
+    }
+
+    #[test]
+    fn test_quantized_tensor_layout_matches_ggml_nb_vector() {
+        let q4_0 = TensorInfo::new(
+            "q4_0".to_string(),
+            TensorShape::new(vec![64, 3]).unwrap(),
+            TensorType::Q4_0,
+            0,
+        );
+        assert_eq!(q4_0.calculate_layout().unwrap().strides, vec![18, 36]);
+
+        let q4_k = TensorInfo::new(
+            "q4_k".to_string(),
+            TensorShape::new(vec![256, 2, 3]).unwrap(),
+            TensorType::Q4_K,
+            0,
+        );
+        assert_eq!(q4_k.calculate_layout().unwrap().strides, vec![144, 144, 288]);
     }
 
     #[test]
@@ -695,9 +835,30 @@ mod tests {
         assert!(stats.is_some());
 
         let stats = stats.unwrap();
-        assert!(stats.min_value.is_some());
-        assert!(stats.max_value.is_some());
-        assert!(stats.mean_value.is_some());
+        assert_eq!(stats.min_value, Some(1.0));
+        assert_eq!(stats.max_value, Some(2.0));
+        assert_eq!(stats.mean_value, Some(1.5));
+        assert_eq!(stats.std_deviation, Some(0.5));
+        assert_eq!(stats.zero_count, Some(0));
+        assert!(stats.checksum.is_some());
+    }
+
+    #[test]
+    fn test_encoded_tensor_stats_do_not_count_zero_bytes_as_values() {
+        let tensor_info = TensorInfo::with_data(
+            "f16".to_string(),
+            TensorShape::new(vec![2]).unwrap(),
+            TensorType::F16,
+            0,
+            TensorData::new_owned(vec![0; 4]),
+        );
+
+        let stats = tensor_info.calculate_stats().unwrap();
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+        assert_eq!(stats.mean_value, None);
+        assert_eq!(stats.std_deviation, None);
+        assert_eq!(stats.zero_count, None);
         assert!(stats.checksum.is_some());
     }
 
@@ -730,7 +891,7 @@ mod tests {
         assert_eq!(memory_info.expected_bytes, 40);
         assert_eq!(memory_info.loaded_bytes, 40);
         assert!(memory_info.is_loaded);
-        assert_eq!(memory_info.compression_ratio, 1.0);
+        assert_eq!(memory_info.loaded_fraction, 1.0);
     }
 
     #[test]
@@ -775,9 +936,9 @@ mod tests {
         let display_str = format!("{}", tensor_info);
         assert!(!display_str.is_empty());
 
-        let layout = tensor_info.calculate_layout();
+        let layout = tensor_info.calculate_layout().unwrap();
         let layout_str = format!("{}", layout);
-        assert!(layout_str.contains("Row-Major"));
+        assert!(layout_str.contains("GGML"));
 
         let memory_layout_str = format!("{}", MemoryLayout::ColumnMajor);
         assert_eq!(memory_layout_str, "Column-Major");

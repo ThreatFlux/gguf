@@ -32,7 +32,7 @@ mod gguf_builder_tests {
         let builder = GGUFBuilder::simple("test_model", "A test model");
 
         assert_eq!(builder.tensor_count(), 0);
-        assert_eq!(builder.metadata_count(), 3); // name, description, and file_type
+        assert_eq!(builder.metadata_count(), 2); // name and description
     }
 
     #[test]
@@ -87,7 +87,7 @@ mod gguf_builder_tests {
         let mut builder = GGUFBuilder::new();
 
         let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
-        builder = builder.add_f32_tensor("weights", vec![2, 3], data);
+        builder = builder.add_f32_tensor("weights", vec![2, 3], data).unwrap();
 
         assert_eq!(builder.tensor_count(), 1);
     }
@@ -97,7 +97,7 @@ mod gguf_builder_tests {
         let mut builder = GGUFBuilder::new();
 
         let data = vec![1, 2, 3, 4];
-        builder = builder.add_i32_tensor("indices", vec![4], data);
+        builder = builder.add_i32_tensor("indices", vec![4], data).unwrap();
 
         assert_eq!(builder.tensor_count(), 1);
     }
@@ -109,12 +109,14 @@ mod gguf_builder_tests {
         // Create mock quantized data (64 bytes for 128 elements in Q4_0)
         let quantized_data = vec![0u8; 72]; // 4 blocks * 18 bytes per block
 
-        builder = builder.add_quantized_tensor(
-            "quantized_weights",
-            vec![128], // 128 elements = 4 blocks of 32 elements each
-            TensorType::Q4_0,
-            quantized_data,
-        );
+        builder = builder
+            .add_quantized_tensor(
+                "quantized_weights",
+                vec![128], // 128 elements = 4 blocks of 32 elements each
+                TensorType::Q4_0,
+                quantized_data,
+            )
+            .unwrap();
 
         assert_eq!(builder.tensor_count(), 1);
     }
@@ -139,7 +141,7 @@ mod gguf_builder_tests {
         let reader = GGUFFileReader::new(cursor).expect("Failed to read built data");
 
         assert_eq!(reader.tensor_count(), 1);
-        assert_eq!(reader.metadata().len(), 3); // model name, description, and file_type
+        assert_eq!(reader.metadata().len(), 2); // model name and description
         assert!(reader.get_tensor_info("weights").is_some());
     }
 
@@ -151,7 +153,7 @@ mod gguf_builder_tests {
         let mut builder = GGUFBuilder::simple("file_model", "Model saved to file");
 
         let data = vec![10i32, 20i32, 30i32];
-        builder = builder.add_i32_tensor("data", vec![3], data);
+        builder = builder.add_i32_tensor("data", vec![3], data).unwrap();
 
         let result = builder.build_to_file(file_path).expect("Failed to build to file");
 
@@ -179,7 +181,7 @@ mod gguf_builder_tests {
 
         let mut builder = GGUFBuilder::new();
         builder = builder.add_metadata("test_key", MetadataValue::Bool(true));
-        builder = builder.add_f32_tensor("test_tensor", vec![1], vec![42.0]);
+        builder = builder.add_f32_tensor("test_tensor", vec![1], vec![42.0]).unwrap();
 
         let result = builder.build_to_writer(cursor).expect("Failed to build to writer");
 
@@ -211,20 +213,27 @@ mod gguf_builder_tests {
         // Add multiple tensors of different types
         builder = builder
             .add_f32_tensor("embedding.weight", vec![50000, 768], vec![0.0f32; 50000 * 768])
+            .unwrap()
             .add_f32_tensor("layer.0.attention.weight", vec![768, 768], vec![1.0f32; 768 * 768])
-            .add_i32_tensor("tokenizer.vocab", vec![50000], (0..50000).collect());
+            .unwrap()
+            .add_i32_tensor("tokenizer.vocab", vec![50000], (0..50000).collect())
+            .unwrap();
 
         // Add quantized tensor with correct size
         // Q4_0: 768 * 3072 = 2,359,296 elements / 32 (block_size) = 73,728 blocks * 18 bytes/block = 1,327,104 bytes
         let elements = 768 * 3072;
-        let expected_size = TensorType::Q4_0.calculate_size(elements as u64) as usize;
+        let expected_size = TensorType::Q4_0
+            .calculate_size(elements as u64)
+            .expect("Q4_0 storage geometry is supported") as usize;
         let quantized_data = vec![0u8; expected_size];
-        builder = builder.add_quantized_tensor(
-            "layer.0.mlp.weight.q4_0",
-            vec![768, 3072],
-            TensorType::Q4_0,
-            quantized_data,
-        );
+        builder = builder
+            .add_quantized_tensor(
+                "layer.0.mlp.weight.q4_0",
+                vec![768, 3072],
+                TensorType::Q4_0,
+                quantized_data,
+            )
+            .unwrap();
 
         let (bytes, _) = builder.build_to_bytes().expect("Failed to build complex model");
 
@@ -288,17 +297,10 @@ mod gguf_builder_tests {
 
     #[test]
     fn test_gguf_builder_duplicate_tensor_names() {
-        let mut builder = GGUFBuilder::new();
+        let builder = GGUFBuilder::new().add_f32_tensor("tensor", vec![2], vec![1.0, 2.0]).unwrap();
 
-        builder = builder.add_f32_tensor("tensor", vec![2], vec![1.0, 2.0]);
-
-        // Adding another tensor with the same name will be caught during validation
-        builder = builder.add_f32_tensor("tensor", vec![3], vec![3.0, 4.0, 5.0]);
-
-        assert_eq!(builder.tensor_count(), 2); // Both tensors are added
-
-        // Building should fail due to duplicate names
-        let result = builder.build_to_bytes();
+        // Duplicate names are rejected at insertion instead of being deferred to build time.
+        let result = builder.add_f32_tensor("tensor", vec![3], vec![3.0, 4.0, 5.0]);
         assert!(result.is_err());
 
         if let Err(e) = result {

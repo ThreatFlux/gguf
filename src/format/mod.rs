@@ -1,7 +1,8 @@
-//! GGUF format specification and structures
+//! GGUF v3 format structures and raw I/O primitives
 //!
-//! This module contains the complete specification for the GGUF (GGML Universal Format) file format,
-//! including all data types, header structures, and alignment utilities.
+//! This module contains the header, metadata, tensor descriptor, type, and
+//! alignment structures used by the crate's documented GGUF v3 subset. See
+//! the format-support guide for byte-order and tensor-type boundaries.
 
 pub mod alignment;
 pub mod constants;

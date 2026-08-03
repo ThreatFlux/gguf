@@ -31,6 +31,66 @@ fn create_minimal_gguf_data() -> Vec<u8> {
     data
 }
 
+/// Hand-encoded GGUF v3 fixture. This deliberately does not call any SDK
+/// writer so a shared serializer/parser defect cannot make the test pass.
+#[cfg(feature = "std")]
+fn create_manual_aligned_gguf_fixture() -> Vec<u8> {
+    fn u32_le(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    fn u64_le(bytes: &mut Vec<u8>, value: u64) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    fn string(bytes: &mut Vec<u8>, value: &str) {
+        u64_le(bytes, value.len() as u64);
+        bytes.extend_from_slice(value.as_bytes());
+    }
+
+    let mut bytes = Vec::new();
+    u32_le(&mut bytes, 0x4655_4747); // magic
+    u32_le(&mut bytes, 3); // version
+    u64_le(&mut bytes, 1); // tensor count
+    u64_le(&mut bytes, 2); // metadata count
+
+    string(&mut bytes, "general.alignment");
+    u32_le(&mut bytes, 4); // GGUF_TYPE_UINT32
+    u32_le(&mut bytes, 64);
+
+    string(&mut bytes, "general.name");
+    u32_le(&mut bytes, 8); // GGUF_TYPE_STRING
+    string(&mut bytes, "manual-spec");
+
+    string(&mut bytes, "weight");
+    u32_le(&mut bytes, 2); // rank
+    u64_le(&mut bytes, 2); // ne[0], GGML-contiguous dimension
+    u64_le(&mut bytes, 3); // ne[1]
+    u32_le(&mut bytes, 0); // GGML_TYPE_F32
+    u64_le(&mut bytes, 0); // relative tensor-data offset
+
+    assert_eq!(bytes.len(), 146);
+    bytes.resize(192, 0); // next 64-byte boundary
+    for value in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+    bytes
+}
+
+#[cfg(feature = "std")]
+fn create_unsupported_tensor_type_fixture(tensor_type: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&0x4655_4747u32.to_le_bytes());
+    bytes.extend_from_slice(&3u32.to_le_bytes());
+    bytes.extend_from_slice(&1u64.to_le_bytes());
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    bytes.extend_from_slice(&1u64.to_le_bytes());
+    bytes.push(b'x');
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&1u64.to_le_bytes());
+    bytes.extend_from_slice(&tensor_type.to_le_bytes());
+    bytes.extend_from_slice(&0u64.to_le_bytes());
+    bytes
+}
+
 #[cfg(feature = "std")]
 #[test]
 fn test_read_minimal_gguf() {
@@ -42,6 +102,52 @@ fn test_read_minimal_gguf() {
     assert_eq!(reader.header().version, 3);
     assert_eq!(reader.tensor_infos().len(), 0);
     assert_eq!(reader.metadata().len(), 0);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_manual_spec_fixture_with_custom_alignment() {
+    let mut reader = GGUFFileReader::new(Cursor::new(create_manual_aligned_gguf_fixture()))
+        .expect("manual GGUF v3 fixture must parse");
+
+    assert_eq!(reader.tensor_alignment(), 64);
+    assert_eq!(reader.tensor_data_offset(), 192);
+    assert_eq!(reader.metadata().get_string("general.name"), Some("manual-spec"));
+    let info = reader.get_tensor_info("weight").unwrap();
+    assert_eq!(info.shape().dims(), &[2, 3]);
+    assert_eq!(info.tensor_type(), TensorType::F32);
+    assert_eq!(info.data_offset(), 0);
+
+    let tensor = reader.load_tensor_data("weight").unwrap().unwrap();
+    let expected: Vec<u8> = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0]
+        .into_iter()
+        .flat_map(f32::to_le_bytes)
+        .collect();
+    assert_eq!(tensor.as_slice(), expected);
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_big_endian_header_prefix_is_explicitly_rejected() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"GGUF");
+    bytes.extend_from_slice(&3u32.to_be_bytes());
+    bytes.extend_from_slice(&0u64.to_be_bytes());
+    bytes.extend_from_slice(&0u64.to_be_bytes());
+
+    let error = GGUFFileReader::new(Cursor::new(bytes)).unwrap_err();
+    assert!(matches!(error, GGUFError::UnsupportedVersion(0x0300_0000)));
+}
+
+#[cfg(feature = "std")]
+#[test]
+fn test_removed_reserved_and_unknown_tensor_type_ids_are_rejected() {
+    for tensor_type in [4, 5, 31, 32, 33, 36, 37, 38, u32::MAX] {
+        let error =
+            GGUFFileReader::new(Cursor::new(create_unsupported_tensor_type_fixture(tensor_type)))
+                .unwrap_err();
+        assert!(!error.to_string().is_empty(), "empty error for tensor type {tensor_type}");
+    }
 }
 
 #[cfg(feature = "std")]
@@ -127,9 +233,9 @@ fn test_metadata_operations() {
 #[test]
 fn test_tensor_type_properties() {
     // Test basic types
-    assert_eq!(TensorType::F32.element_size(), 4);
-    assert_eq!(TensorType::F16.element_size(), 2);
-    assert_eq!(TensorType::I32.element_size(), 4);
+    assert_eq!(TensorType::F32.element_size(), Some(4));
+    assert_eq!(TensorType::F16.element_size(), Some(2));
+    assert_eq!(TensorType::I32.element_size(), Some(4));
 
     // Test quantized types
     assert!(TensorType::Q4_0.is_quantized());

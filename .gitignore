@@ -1,6 +1,5 @@
 # Rust build artifacts
 /target/
-/Cargo.lock
 
 # IDE and editor files
 .vscode/
@@ -26,15 +25,17 @@ Thumbs.db
 # Log files
 *.log
 
-# Environment files
-.env
-.env.local
-.env.*.local
+# Environment files (keep a deliberately sanitized template when needed)
+.env*
+!.env.example
 
 # Test artifacts
 /test-results/
 coverage/
 *.profraw
+/lcov.info
+/test_model.gguf
+/test_roundtrip.gguf
 
 # Documentation build artifacts
 /book/
@@ -49,8 +50,8 @@ coverage/
 # *.gguf
 # *.bin
 # But always ignore the data directory with large models
-/data/*.gguf
-/data/*.bin
+/data/**/*.gguf
+/data/**/*.bin
 
 # Backup files
 *.bak

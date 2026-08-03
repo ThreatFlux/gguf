@@ -15,7 +15,7 @@
 //! // Create a simple GGUF file
 //! let builder = GGUFBuilder::simple("my_model", "A test model")
 //!     .add_metadata("version", MetadataValue::String("1.0".to_string()))
-//!     .add_f32_tensor("weights", vec![2, 2], vec![1.0, 2.0, 3.0, 4.0]);
+//!     .add_f32_tensor("weights", vec![2, 2], vec![1.0, 2.0, 3.0, 4.0])?;
 //!
 //! let (bytes, result) = builder.build_to_bytes()?;
 //! println!("Created GGUF file with {} bytes", bytes.len());
@@ -59,29 +59,44 @@
 //! ```
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![deny(unsafe_op_in_unsafe_fn)]
 #![recursion_limit = "8192"]
 
+#[cfg(not(any(feature = "std", feature = "alloc")))]
+compile_error!(
+    "gguf-rs-lib requires allocation support; enable the `alloc` feature for no_std builds"
+);
+
 // Public modules
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod builder;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod error;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod format;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod metadata;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod reader;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod tensor;
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod writer;
 
 // Optional async support
-#[cfg(feature = "async")]
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "async"))]
 pub mod r#async;
 
 // Optional memory mapping support
-#[cfg(feature = "mmap")]
+#[cfg(all(any(feature = "std", feature = "alloc"), feature = "mmap"))]
 pub mod mmap;
 
 // Re-export main types for convenience
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub use error::{GGUFError, Result};
 
 // Re-export commonly used items in prelude
+#[cfg(any(feature = "std", feature = "alloc"))]
 pub mod prelude {
     #[cfg(feature = "std")]
     pub use crate::builder::gguf_builder::GGUFBuilder;

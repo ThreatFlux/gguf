@@ -1,177 +1,223 @@
-# gguf_rs
+# gguf-rs
 
 [![Crates.io](https://img.shields.io/crates/v/gguf-rs-lib.svg)](https://crates.io/crates/gguf-rs-lib)
 [![Documentation](https://docs.rs/gguf-rs-lib/badge.svg)](https://docs.rs/gguf-rs-lib)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Build Status](https://github.com/ThreatFlux/gguf_rs/workflows/CI/badge.svg)](https://github.com/ThreatFlux/gguf_rs/actions)
+[![CI](https://github.com/ThreatFlux/gguf/actions/workflows/ci.yml/badge.svg)](https://github.com/ThreatFlux/gguf/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A Rust library for reading and writing GGUF (GGML Universal Format) files, designed for machine learning model storage and manipulation.
+`gguf-rs-lib` is a Rust library for inspecting and creating
+[GGUF](https://github.com/ggml-org/ggml/blob/master/docs/gguf.md) files. Its
+stable path is synchronous GGUF v3 header, metadata, and tensor-descriptor I/O.
+The API also includes tensor data helpers and optional preview APIs for Tokio
+and memory mapping.
 
-## Overview
+The crate does not execute models, quantize tensors, or provide inference.
 
-GGUF (GGML Universal Format) is a binary format for storing machine learning models, particularly those used with the GGML library. This crate provides a safe, efficient, and ergonomic interface for working with GGUF files in Rust.
+## Support at a glance
 
-## Features
+| Capability | Status |
+| --- | --- |
+| GGUF version | Version 3 only |
+| Byte order | Little-endian only |
+| Metadata | All GGUF value IDs 0–12; validated ASCII hierarchical keys |
+| Tensor descriptors | Canonical type IDs 0–3, 6–30, 34–35, and 39–42 |
+| Tensor dimensions | Exactly 1–4 dimensions per descriptor |
+| Unquantized payloads | Raw read/write with exact size checks |
+| Quantized payloads | Exact recognized block sizes; no codec |
+| Synchronous reader/writer | Implemented with `std` |
+| `no_std` | Data structures and helpers with `alloc`; no file/stream I/O |
+| Tokio `async` | Preview: validates only magic and version |
+| `mmap` | Preview: maps a file and validates only magic and version |
+| CLI | Workspace inspection, validation, and comparison tool |
 
-- 🚀 **Fast and Memory Efficient**: Zero-copy parsing where possible with optional memory mapping support
-- 🔒 **Type Safe**: Strongly typed API that prevents common errors when working with GGUF files
-- 📦 **Serde Integration**: Built-in serialization and deserialization support
-- 🎯 **No Unsafe Code**: Pure safe Rust implementation (by default)
-- 🔄 **Async Support**: Optional async I/O support with Tokio
-- 🛠️ **CLI Tool**: Command-line utility for inspecting and manipulating GGUF files
-- 📚 **Well Documented**: Comprehensive documentation with examples
-- 🧪 **Thoroughly Tested**: Extensive test suite including property-based tests
+See [format support](docs/format-support.md) and
+[features](docs/features.md) before using the crate with quantized model
+payloads, async I/O, memory mapping, or untrusted files.
 
-## Quick Start
+## Install
 
-Add this to your `Cargo.toml`:
+The library package on crates.io is `gguf-rs-lib`:
 
 ```toml
 [dependencies]
-gguf-rs-lib = "0.2.0"
+gguf-rs-lib = "0.3"
 ```
 
-### Basic Usage
+The similarly named crates.io package `gguf` is unrelated. The source tree can
+be ahead of the latest published `gguf-rs-lib` release; pin a Git revision when
+depending directly on the repository. Version 0.3 corrects public tensor-type
+discriminants; applications that cast or persist `GGUFTensorType` values should
+review the [migration note](CHANGELOG.md#migration-from-02x).
+
+## Read a file
 
 ```rust
-use gguf_rs_lib::{GGUFFile, GGUFError};
+use gguf_rs_lib::reader::GGUFFileReader;
+use gguf_rs_lib::Result;
 use std::fs::File;
 
-fn main() -> Result<(), GGUFError> {
-    // Read a GGUF file
-    let file = File::open("model.gguf")?;
-    let gguf = GGUFFile::read(file)?;
-    
-    // Access metadata
-    println!("Model name: {}", gguf.metadata().get("general.name").unwrap());
-    println!("Number of tensors: {}", gguf.tensors().len());
-    
-    // Iterate over tensors
-    for tensor in gguf.tensors() {
-        println!("Tensor: {} ({:?})", tensor.name(), tensor.shape());
+fn main() -> Result<()> {
+    let reader = GGUFFileReader::new(File::open("model.gguf")?)?;
+
+    println!("GGUF v{}", reader.header().version);
+    println!("{} metadata entries", reader.metadata().len());
+    println!("{} tensor descriptors", reader.tensor_count());
+
+    if let Some(name) = reader.metadata().get_string("general.name") {
+        println!("model: {name}");
     }
-    
-    Ok(())
-}
-```
 
-### Async Usage (with `async` feature)
-
-```rust
-use gguf_rs_lib::{GGUFFile, GGUFError};
-use tokio::fs::File;
-
-#[tokio::main]
-async fn main() -> Result<(), GGUFError> {
-    let file = File::open("model.gguf").await?;
-    let gguf = GGUFFile::read_async(file).await?;
-    
-    // Work with the GGUF file asynchronously
-    println!("Loaded {} tensors", gguf.tensors().len());
-    
-    Ok(())
-}
-```
-
-### Memory Mapping (with `mmap` feature)
-
-```rust
-use gguf_rs_lib::{GGUFFile, GGUFError};
-
-fn main() -> Result<(), GGUFError> {
-    // Memory map a large GGUF file for efficient access
-    let gguf = GGUFFile::mmap("large_model.gguf")?;
-    
-    // Access data without loading entire file into memory
-    for tensor in gguf.tensors() {
-        let data = tensor.data(); // Zero-copy access to tensor data
-        // Process tensor data...
+    for tensor in reader.tensor_infos().iter().take(10) {
+        println!(
+            "{}: {} {:?}",
+            tensor.name(),
+            tensor.tensor_type().name(),
+            tensor.shape().dims()
+        );
     }
-    
+
     Ok(())
 }
 ```
 
-## CLI Tool
+`GGUFFileReader::new` parses the header, metadata, and tensor descriptors and
+validates that declared payload ranges fit the source. It does not load tensor
+payload bytes by default. Use `load_tensor_data` or `load_all_tensor_data` when
+those bytes are needed.
 
-The `gguf-cli` tool provides command-line access to GGUF functionality:
+Run the complete example with:
 
 ```bash
-# Install the CLI tool
-cargo install gguf --features=cli
+cargo run --locked --example basic_usage -- model.gguf
+```
 
-# Inspect a GGUF file
-gguf-cli info model.gguf
+## Create a file
 
-# List all tensors
+```rust
+use gguf_rs_lib::builder::GGUFBuilder;
+use gguf_rs_lib::Result;
+
+fn main() -> Result<()> {
+    let result = GGUFBuilder::simple("tiny-model", "GGUF writer example")
+        .add_f32_tensor("weights", vec![2, 2], vec![1.0, 2.0, 3.0, 4.0])?
+        .build_to_file("tiny-model.gguf")?;
+
+    println!("wrote {} bytes", result.total_bytes_written);
+    Ok(())
+}
+```
+
+The high-level builder is the recommended writing API. It computes relative
+tensor offsets and validates raw payload lengths for the represented tensor
+type. Tensor convenience methods return `Result<GGUFBuilder>` so invalid ranks,
+payload sizes, and quantization block geometry fail at the call site.
+Quantized inputs must already be encoded in the recognized GGML block layout;
+the crate does not quantize values. The builder adds and validates
+`general.quantization_version = 2` whenever a quantized tensor is present.
+
+## Features
+
+| Feature | Default | What it enables |
+| --- | --- | --- |
+| `std` | Yes | File/stream I/O, builders, errors, Serde derives |
+| `alloc` | Via `std` | Allocating data structures for `no_std` builds |
+| `async` | No | Tokio-based, header-only preview reader; implies `std` |
+| `mmap` | No | Memory-map and byte-reader preview APIs; implies `std` |
+
+The minimum supported Rust version is 1.87.
+
+Useful checks:
+
+```bash
+cargo check --locked -p gguf-rs-lib --no-default-features --features alloc
+cargo check --locked -p gguf-rs-lib --all-features
+```
+
+A bare `--no-default-features` build is not a supported configuration; enable
+`alloc`. Details and examples are in [the feature guide](docs/features.md).
+
+## CLI
+
+`gguf-cli` is currently a workspace-only package. Install it from a clone:
+
+```bash
+git clone https://github.com/ThreatFlux/gguf.git
+cd gguf
+cargo install --locked --path gguf-cli
+```
+
+Implemented paths include:
+
+```bash
+gguf-cli info model.gguf --detailed
 gguf-cli tensors model.gguf
-
-# Extract metadata
+gguf-cli tensors model.gguf --summary
 gguf-cli metadata model.gguf --format json
-
-# Validate file integrity
-gguf-cli validate model.gguf
+gguf-cli metadata model.gguf --format yaml --key general.
+gguf-cli validate models/ --recursive --integrity
+gguf-cli compare before.gguf after.gguf
+gguf-cli compare before.gguf after.gguf --data
 ```
 
-## Feature Flags
+The CLI uses the complete synchronous parser. Directory validation checks
+direct `.gguf` children or all descendants with `--recursive`; `--integrity`
+also reads every declared tensor payload. Comparison checks metadata and tensor
+descriptors by default and exact payload bytes with `--data`. These operations
+do not provide a cryptographic integrity, authenticity, or model-correctness
+guarantee. See the [CLI guide](docs/cli.md).
 
-- `std` (default): Standard library support
-- `async`: Async I/O support with Tokio
-- `mmap`: Memory mapping support for large files
-- `cli`: Build the command-line tool
+## Performance and safety
 
-## Performance
+No cross-language or absolute performance claim is made. The synchronous
+reader parses metadata and descriptors eagerly and tensor bytes on request.
+Benchmark the operations, files, and feature set that match your workload.
 
-This library is designed for performance:
+The default feature set does not execute an `unsafe` block. The `mmap` feature
+has an explicitly unsafe constructor because callers must ensure a mapped file
+is not concurrently truncated or modified. Parsing also has defensive limits,
+but it is not a complete semantic, checksum, or authenticity validation of a
+model.
 
-- Zero-copy parsing where possible
-- Optional memory mapping for large files
-- Efficient tensor data access
-- Minimal allocations during parsing
+Read [safety and validation](docs/safety-and-validation.md) for the exact
+boundaries.
 
-Benchmarks show that `gguf_rs` can parse large GGUF files significantly faster than equivalent Python implementations.
+## Documentation
 
-## Safety
+- [Documentation index](docs/README.md)
+- [Changelog](CHANGELOG.md)
+- [Format and type support](docs/format-support.md)
+- [Feature semantics](docs/features.md)
+- [Safety and validation](docs/safety-and-validation.md)
+- [CLI guide](docs/cli.md)
+- [Examples](docs/examples.md)
+- [Testing guide](TESTING_GUIDE.md)
+- [Contributing](CONTRIBUTING.md)
 
-This crate uses only safe Rust by default. The optional `mmap` feature uses memory mapping, which involves some inherent platform-specific risks, but the API remains safe to use.
+API documentation is published on [docs.rs](https://docs.rs/gguf-rs-lib).
 
-## Contributing
-
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
-
-### Development Setup
+## Development
 
 ```bash
-# Clone the repository
-git clone https://github.com/ThreatFlux/gguf_rs.git
-cd gguf_rs
+git clone https://github.com/ThreatFlux/gguf.git
+cd gguf
 
-# Run tests
-cargo test
-
-# Run benchmarks
-cargo bench
-
-# Check formatting and linting
-cargo fmt --check
-cargo clippy -- -D warnings
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+cargo test --locked --workspace --all-features
+python3 scripts/check_docs.py
+./scripts/check_package.sh
 ```
+
+The workspace tracks `Cargo.lock` because it contains the `gguf-cli`
+application. Use `--locked` in CI and release-oriented commands.
+
+## Security
+
+See the [security policy](SECURITY.md). Report suspected vulnerabilities
+through
+[GitHub private vulnerability reporting](https://github.com/ThreatFlux/gguf/security/advisories/new);
+do not open a public issue for an undisclosed vulnerability.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Authors
-
-- Claude Code
-- Wyatt Roersma
-
-## Acknowledgments
-
-- The GGML project for the GGUF format specification
-- The Rust community for excellent crates that make this library possible
-
-## Related Projects
-
-- [ggml](https://github.com/ggerganov/ggml) - The original GGML library
-- [llama.cpp](https://github.com/ggerganov/llama.cpp) - C++ implementation using GGUF
+Licensed under the [MIT License](LICENSE).

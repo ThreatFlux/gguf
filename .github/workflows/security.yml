@@ -2,64 +2,87 @@ name: Security
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
   schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sunday
+    - cron: "0 0 * * 0"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   cargo-deny:
-    name: Cargo Deny Check
+    name: Cargo Deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Run cargo-deny
-        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          rust-version: "1.95.0"
-          log-level: warn
-          command: check
+          persist-credentials: false
 
-  security-audit:
-    name: Security Audit
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: 1.97.1
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
+        with:
+          tool: cargo-deny@0.20.2
+
+      - name: Check dependency policy
+        run: cargo deny check
+
+  cargo-audit:
+    name: RustSec Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
-      
-      - name: Run security audit
-        run: cargo audit
-
-  supply-chain:
-    name: Supply Chain Security
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: taiki-e/install-action@07b4745e0c39a41822af610387492e3e53aa222b # v2.83.4
         with:
-          toolchain: 1.95.0
-      
-      - name: Install cargo-supply-chain
-        run: cargo install cargo-supply-chain
-      
-      - name: Check supply chain
-        run: cargo supply-chain publishers
+          tool: cargo-audit@0.22.2
+
+      - name: Audit dependencies
+        run: cargo audit --deny warnings
 
   dependency-review:
     name: Dependency Review
-    runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: moderate
+
+  semver:
+    name: Public API Compatibility
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check semantic-version compatibility
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
+        with:
+          package: gguf-rs-lib
+          baseline-rev: ${{ github.event.pull_request.base.sha }}
+          rust-toolchain: 1.97.1

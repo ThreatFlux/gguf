@@ -1,77 +1,91 @@
 #!/usr/bin/env python3
-"""Verify GGUF files in the data directory"""
+"""Inspect GGUF header prefixes without claiming full-file validation."""
 
-import struct
+from __future__ import annotations
+
+import argparse
 import os
+import struct
 import sys
 from pathlib import Path
 
-def read_gguf_header(filepath):
-    """Read and verify GGUF file header"""
-    with open(filepath, 'rb') as f:
-        # Read magic number
-        magic = f.read(4)
-        if magic != b'GGUF':
-            return None, f"Invalid magic: {magic}"
-        
-        # Read version
-        version = struct.unpack('<I', f.read(4))[0]
-        
-        # Read tensor count
-        tensor_count = struct.unpack('<Q', f.read(8))[0]
-        
-        # Read metadata count  
-        metadata_count = struct.unpack('<Q', f.read(8))[0]
-        
-        return {
-            'magic': magic.decode('ascii'),
-            'version': version,
-            'tensor_count': tensor_count,
-            'metadata_count': metadata_count,
-            'file_size_mb': os.path.getsize(filepath) / (1024 * 1024)
-        }, None
 
-def main():
-    data_dir = Path('data')
-    gguf_files = list(data_dir.glob('*.gguf'))
-    
-    print(f"Found {len(gguf_files)} GGUF files in data/")
-    print("=" * 60)
-    
-    results = []
-    for filepath in sorted(gguf_files):
-        header, error = read_gguf_header(filepath)
-        if header:
-            results.append((filepath.name, header))
-            print(f"\n✓ {filepath.name}")
-            print(f"  Size: {header['file_size_mb']:.1f} MB")
-            print(f"  Version: {header['version']}")
-            print(f"  Tensors: {header['tensor_count']}")
-            print(f"  Metadata: {header['metadata_count']}")
+HEADER = struct.Struct("<4sIQQ")
+
+
+def discover(paths: list[Path]) -> list[Path]:
+    files: set[Path] = set()
+    for path in paths:
+        if path.is_dir():
+            files.update(
+                candidate for candidate in path.rglob("*.gguf") if candidate.is_file()
+            )
         else:
-            print(f"\n✗ {filepath.name}: {error}")
-    
-    print("\n" + "=" * 60)
-    print(f"Summary: {len(results)}/{len(gguf_files)} files are valid GGUF")
-    
-    # Summary statistics
-    if results:
-        print("\nFile Statistics:")
-        print(f"  Total size: {sum(h['file_size_mb'] for _, h in results):.1f} MB")
-        print(f"  Total tensors: {sum(h['tensor_count'] for _, h in results)}")
-        print(f"  Average metadata entries: {sum(h['metadata_count'] for _, h in results) / len(results):.1f}")
-        
-        # Group by version
-        versions = {}
-        for name, header in results:
-            v = header['version']
-            if v not in versions:
-                versions[v] = []
-            versions[v].append(name)
-        
-        print(f"\nVersions found:")
-        for v, files in versions.items():
-            print(f"  Version {v}: {len(files)} files")
+            files.add(path)
+    return sorted(files)
 
-if __name__ == '__main__':
-    main()
+
+def read_header(path: Path) -> tuple[dict[str, int | str] | None, str | None]:
+    try:
+        with path.open("rb") as stream:
+            raw = stream.read(HEADER.size)
+            file_size = os.fstat(stream.fileno()).st_size
+    except OSError as error:
+        return None, str(error)
+
+    if len(raw) != HEADER.size:
+        return None, f"truncated header: expected {HEADER.size} bytes, found {len(raw)}"
+
+    magic, version, tensor_count, metadata_count = HEADER.unpack(raw)
+    if magic != b"GGUF":
+        return None, f"invalid magic: {magic!r}"
+
+    return {
+        "version": version,
+        "tensor_count": tensor_count,
+        "metadata_count": metadata_count,
+        "file_size": file_size,
+    }, None
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Inspect GGUF magic/version/count fields; does not validate the full file"
+    )
+    parser.add_argument("paths", nargs="+", type=Path, help="GGUF files or directories")
+    args = parser.parse_args()
+
+    files = discover(args.paths)
+    if not files:
+        parser.error("no .gguf files found")
+
+    failed = False
+    for path in files:
+        header, error = read_header(path)
+        if error:
+            failed = True
+            print(f"{path}: ERROR: {error}", file=sys.stderr)
+            continue
+
+        if header is None:
+            failed = True
+            print(f"{path}: ERROR: header parser returned no result", file=sys.stderr)
+            continue
+        support = (
+            "supported" if header["version"] == 3 else "unsupported by gguf-rs-lib"
+        )
+        print(
+            f"{path}: GGUF v{header['version']} ({support}), "
+            f"{header['tensor_count']} tensors, "
+            f"{header['metadata_count']} metadata entries, "
+            f"{header['file_size']} bytes"
+        )
+
+    print(
+        "Header inspection only; payloads and semantic compatibility were not checked."
+    )
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
