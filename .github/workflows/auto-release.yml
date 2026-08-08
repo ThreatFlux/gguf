@@ -23,11 +23,14 @@ on:
           - major
 
 permissions:
-  actions: write
-  contents: write
+  actions: read
+  contents: read
 
 jobs:
   release:
+    permissions:
+      actions: write
+      contents: write
     uses: ThreatFlux/github_actions/.github/workflows/reusable-auto-release.yml@e9bec9898080aa55bec9f3ce4351bae37f8b88cd
     with:
       bump: ${{ github.event.inputs.version_bump || 'auto' }}
