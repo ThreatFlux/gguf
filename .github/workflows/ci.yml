@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  RUSTUP_TOOLCHAIN: 1.99.0
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   RUSTFLAGS: "-D warnings"
@@ -24,7 +25,7 @@ env:
 
 jobs:
   quality:
-    name: Quality (Rust 1.97.1)
+    name: Quality (Rust 1.99.0)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -33,10 +34,13 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
           components: rustfmt, clippy
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -45,7 +49,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-1.99.0-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -84,9 +88,12 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -95,7 +102,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-features-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-features-1.99.0-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Check default library features
         run: cargo check --locked -p gguf-rs-lib --all-targets
@@ -123,6 +130,8 @@ jobs:
 
   msrv:
     name: Minimum Supported Rust (1.87.0)
+    env:
+      RUSTUP_TOOLCHAIN: 1.87.0
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -131,9 +140,12 @@ jobs:
           persist-credentials: false
 
       - name: Install minimum supported Rust
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
           toolchain: 1.87.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -152,6 +164,8 @@ jobs:
 
   compatibility:
     name: Compatibility (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    env:
+      RUSTUP_TOOLCHAIN: ${{ matrix.rust }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.experimental }}
     strategy:
@@ -159,10 +173,10 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            rust: 1.97.1
+            rust: 1.99.0
             experimental: false
           - os: macos-latest
-            rust: 1.97.1
+            rust: 1.99.0
             experimental: false
           - os: ubuntu-latest
             rust: beta
@@ -174,9 +188,12 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
           toolchain: ${{ matrix.rust }}
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -195,7 +212,6 @@ jobs:
 
   coverage:
     name: Code Coverage
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -207,21 +223,36 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
           components: llvm-tools-preview
 
+      - name: Verify active compiler
+        run: rustc --version --verbose
+
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
-          tool: cargo-llvm-cov@0.8.7
+          tool: cargo-llvm-cov@0.9.1
 
       - name: Generate coverage
-        run: cargo llvm-cov --locked --workspace --all-features --lcov --output-path lcov.info
+        shell: bash
+        run: |
+          cargo llvm-cov --locked --workspace --all-features --lcov --output-path lcov.info
+          test -s lcov.info
+          grep -q '^SF:' lcov.info
+
+      - name: Retain required coverage report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: workspace-lcov
+          path: lcov.info
+          if-no-files-found: error
 
       - name: Upload coverage
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           use_oidc: true
           version: v11.3.1
