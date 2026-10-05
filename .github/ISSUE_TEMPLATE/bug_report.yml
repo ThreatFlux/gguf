@@ -27,7 +27,7 @@ body:
     attributes:
       label: Environment
       description: Include OS, architecture, and `rustc --version --verbose`.
-      placeholder: Ubuntu 24.04 x86_64, rustc 1.97.1
+      placeholder: Ubuntu 24.04 x86_64, rustc 1.99.0
     validations:
       required: true
 

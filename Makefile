@@ -1,9 +1,22 @@
 .PHONY: all build release check fmt format lint test test-features doc examples \
-	docs-check package-check coverage audit clean help
+	docs-check package-check coverage audit clean help ci-local hooks-install workflow-check
 
 CARGO ?= cargo
+ACTIONLINT ?= actionlint
+YAMLLINT ?= yamllint
 
 all: check
+
+ci-local: check workflow-check
+	$(CARGO) build --locked -p gguf-rs-lib --examples --all-features
+	$(CARGO) package --locked --allow-dirty -p gguf-rs-lib
+
+hooks-install:
+	scripts/install-hooks.sh
+
+workflow-check:
+	$(ACTIONLINT)
+	$(YAMLLINT) -c .yamllint.yml .github
 
 build:
 	$(CARGO) build --locked --workspace --all-features
@@ -29,6 +42,7 @@ test-features:
 	$(CARGO) check --locked -p gguf-rs-lib
 	$(CARGO) check --locked -p gguf-rs-lib --all-features
 	$(CARGO) check --locked -p gguf-rs-lib --no-default-features --features alloc
+	$(CARGO) test --locked -p gguf-rs-lib --no-default-features --features alloc --test alloc_only
 	$(CARGO) check --locked -p gguf-cli --all-features
 
 doc:
@@ -58,6 +72,8 @@ clean:
 help:
 	@echo "Targets:"
 	@echo "  check          full contributor checks"
+	@echo "  ci-local       contributor checks, workflows, examples and archive verification"
+	@echo "  hooks-install  install this worktree's pre-push validation hook"
 	@echo "  build          build the workspace"
 	@echo "  release        build the release profile"
 	@echo "  fmt            check formatting"

@@ -14,6 +14,9 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTUP_TOOLCHAIN: 1.99.0
+
 jobs:
   cargo-deny:
     name: Cargo Deny
@@ -25,12 +28,15 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-deny@0.20.2
 
@@ -46,8 +52,16 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: 1.99.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
+
       - name: Install cargo-audit
-        uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2.85.10
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-audit@0.22.2
 
@@ -85,4 +99,4 @@ jobs:
         with:
           package: gguf-rs-lib
           baseline-rev: ${{ github.event.pull_request.base.sha }}
-          rust-toolchain: 1.97.1
+          rust-toolchain: 1.99.0

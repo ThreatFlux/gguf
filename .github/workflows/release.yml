@@ -19,6 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  RUSTUP_TOOLCHAIN: 1.99.0
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
@@ -37,9 +38,12 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -47,7 +51,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-release-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-release-1.99.0-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Verify release version
         id: version
@@ -143,9 +147,12 @@ jobs:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
-          toolchain: 1.97.1
+          toolchain: 1.99.0
+
+      - name: Verify active compiler
+        run: rustc --version --verbose
 
       - name: Cache Cargo data
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -153,7 +160,7 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: ${{ runner.os }}-cargo-publish-1.97.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-publish-1.99.0-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Recheck immutable release tag
         env:
@@ -207,7 +214,7 @@ jobs:
           fi
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ github.ref_name }}
           name: GGUF ${{ github.ref_name }}
