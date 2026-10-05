@@ -24,6 +24,7 @@ rustup component add rustfmt clippy
 git clone https://github.com/ThreatFlux/gguf.git
 cd gguf
 cargo fetch --locked
+make hooks-install
 ```
 
 The workspace tracks `Cargo.lock` because it contains an application. Do not
@@ -58,11 +59,15 @@ cargo check --locked -p gguf-rs-lib --no-default-features --features alloc
 cargo build --locked -p gguf-rs-lib --examples --all-features
 python3 scripts/check_docs.py
 ./scripts/check_package.sh
+make ci-local
 ```
 
 `./scripts/run_quick_tests.sh` runs the shorter contributor loop.
 `./scripts/test-all.sh` runs the full repository check set. See the
 [testing guide](TESTING_GUIDE.md) for targeted commands and coverage.
+`make ci-local` also validates workflows and verifies the library archive.
+Install `actionlint` 1.7.12 and `yamllint` 1.38.0 for workflow validation;
+the `ACTIONLINT` and `YAMLLINT` Make variables accept explicit executable paths.
 
 ## Code and API expectations
 

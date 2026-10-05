@@ -68,7 +68,7 @@ cargo check --locked -p gguf-cli --all-features
 
 The `alloc_only` integration target exercises public metadata, shape, layout,
 and tensor-type geometry APIs with the library compiled without `std`. CI runs
-it on both Rust 1.97.1 and the declared MSRV.
+it on both Rust 1.99.0 and the declared MSRV.
 
 The `async` and `mmap` features imply `std`, so `--features async` and
 `--features mmap` are sufficient from the default configuration.

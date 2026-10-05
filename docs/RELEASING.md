@@ -8,7 +8,7 @@ package named `gguf` is not owned by this project.
 
 - `Cargo.toml` is the source of truth for the library version.
 - `gguf-cli/Cargo.toml` must carry the same version for workspace consistency.
-- Primary release verification uses Rust 1.97.1, and CI separately enforces the
+- Primary release verification uses Rust 1.99.0, and CI separately enforces the
   declared Rust 1.87 minimum.
 - Release tags are annotated or signed and use exactly `v<package-version>`.
 - Only `gguf-rs-lib` is published to crates.io.
