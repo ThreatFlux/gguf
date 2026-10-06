@@ -234,7 +234,9 @@ jobs:
           name: release-${{ matrix.artifact }}
           path: ${{ env.ARCHIVE }}.*
           if-no-files-found: error
-          retention-days: 5
+          # Covers the longest crates-io environment approval wait (30 days),
+          # which is also this repository's maximum artifact retention.
+          retention-days: 30
 
   sbom:
     name: Generate Release SBOMs
@@ -282,7 +284,9 @@ jobs:
           name: release-sbom
           path: sbom-dist/*.cdx.json
           if-no-files-found: error
-          retention-days: 5
+          # Covers the longest crates-io environment approval wait (30 days),
+          # which is also this repository's maximum artifact retention.
+          retention-days: 30
 
   publish-crate:
     name: Publish gguf-rs-lib
