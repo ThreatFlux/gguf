@@ -6,6 +6,16 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-06
+
+This release changes no library or CLI source code, public API, or GGUF
+format behavior.
+
+### Changed
+
+- GitHub release notes are built from this changelog and list the pull
+  requests merged since the previous tag.
+
 ### Fixed
 
 - The Windows `gguf-cli` archive's `.sha256` file now ends in LF instead of
@@ -198,7 +208,8 @@ before the changes collected in this changelog. The repository did not contain
 curated historical release notes, so no earlier change details are inferred
 here.
 
-[Unreleased]: https://github.com/ThreatFlux/gguf/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/ThreatFlux/gguf/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/ThreatFlux/gguf/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/ThreatFlux/gguf/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ThreatFlux/gguf/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/ThreatFlux/gguf/releases/tag/v0.2.5
