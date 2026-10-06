@@ -3,15 +3,15 @@
 ## Supported versions
 
 Security fixes are developed on the default branch and released as a new
-patch version of the latest published release, currently `0.3.1`. Earlier
+patch version of the latest published release, currently `0.3.2`. Earlier
 releases are not maintained.
 
 | Version | Supported |
 | --- | --- |
 | Default branch | Yes |
-| `0.3.1` (latest published) | Yes |
-| `0.3.0` | No; upgrade to `0.3.1` |
-| `0.2.5` and earlier | No; upgrade to `0.3.1` (see the `0.3.0` changelog) |
+| `0.3.2` (latest published) | Yes |
+| `0.3.1` and `0.3.0` | No; upgrade to `0.3.2` |
+| `0.2.5` and earlier | No; upgrade to `0.3.2` (see the `0.3.0` changelog) |
 
 ## Report a vulnerability
 

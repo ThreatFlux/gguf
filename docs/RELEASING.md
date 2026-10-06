@@ -169,16 +169,18 @@ warns instead of failing when the requested version differs from the
 manifests:
 
 ```bash
-gh workflow run release.yml --ref main --field version=0.3.1 --field dry_run=true
+gh workflow run release.yml --ref main --field version=0.3.2 --field dry_run=true
 ```
 
 ## Version history notes
 
-`0.3.1` is the latest `gguf-rs-lib` release on crates.io and GitHub, and both
-workspace manifests are at `0.3.1`, so the next automatic release is `0.3.2` or
+`0.3.2` is the latest `gguf-rs-lib` release on crates.io and GitHub, and both
+workspace manifests are at `0.3.2`, so the next automatic release is `0.3.3` or
 later. `0.3.1` was the first release cut by the `threatflux-automation` App,
 published through crates.io trusted publishing, and shipped with prebuilt
-`gguf-cli` archives and SBOMs. The repository also contains an annotated public `v0.2.6` tag from the
+`gguf-cli` archives and SBOMs. Its Windows `.sha256` file ends in CRLF, so
+`0.3.2` reissued the same library and CLI source with checksum files that all
+end in LF and pass `sha256sum -c`. The repository also contains an annotated public `v0.2.6` tag from the
 retired auto-version workflow; a GitHub release record was later attached to it,
 but no `0.2.6` crate exists. That version is burned: do not move, delete, or
 reuse the tag, and do not publish a crate under it. `0.3.0` was a minor-version
