@@ -6,6 +6,14 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The Windows `gguf-cli` archive's `.sha256` file now ends in LF instead of
+  CRLF, so `sha256sum -c` and `shasum -a 256 -c` can verify it. The v0.3.1
+  Windows checksum file has the correct hash, but its CRLF ending makes those
+  tools report the archive as missing; compare the hash by hand for that
+  release.
+
 ## [0.3.1] - 2026-10-06
 
 This release changes no library or CLI source code, public API, or GGUF

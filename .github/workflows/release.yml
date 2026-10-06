@@ -243,7 +243,33 @@ jobs:
           $archive = "${env:ARCHIVE}.zip"
           Compress-Archive -Path "dist/${env:ARCHIVE}" -DestinationPath $archive
           $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
-          "$hash  $archive" | Out-File -Encoding ascii "$archive.sha256"
+          # LF only: Out-File would end the line in CRLF, and `sha256sum -c` /
+          # `shasum -a 256 -c` then read the CR as part of the file name.
+          Set-Content -Path "$archive.sha256" -Value "$hash  $archive`n" -NoNewline -Encoding ascii
+
+      # Users verify an archive with `sha256sum -c` or `shasum -a 256 -c`, so
+      # every target's checksum file must be exactly one LF-terminated
+      # "<sha256>  <archive>" line, with no CR, that verifies the archive.
+      - name: Verify checksum file
+        shell: bash
+        run: |
+          archive="${ARCHIVE}.tar.gz"
+          [[ "$RUNNER_OS" == "Windows" ]] && archive="${ARCHIVE}.zip"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            hash=$(sha256sum -b "$archive" | cut -d ' ' -f 1)
+          else
+            hash=$(shasum -a 256 -b "$archive" | cut -d ' ' -f 1)
+          fi
+          if ! printf '%s  %s\n' "$hash" "$archive" | cmp -s - "${archive}.sha256"; then
+            echo "::error file=${archive}.sha256::expected exactly one LF-terminated line: ${hash}  ${archive}"
+            od -c "${archive}.sha256"
+            exit 1
+          fi
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            sha256sum -c "${archive}.sha256"
+          else
+            shasum -a 256 -c "${archive}.sha256"
+          fi
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
