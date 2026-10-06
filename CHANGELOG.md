@@ -6,11 +6,22 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-06
+
+This release changes no library or CLI source code, public API, or GGUF
+format behavior.
+
 ### Changed
 
+- Raised the minimum versions of the library's direct dependencies to their
+  current stable releases: `serde` 1.0.229, `thiserror` 2.0.21, `hashbrown`
+  0.17.1 and `libm` 0.2.16, plus `tokio` 1.53.2 (`async` feature) and
+  `memmap2` 0.9.11 (`mmap` feature). The declared Rust 1.87 minimum is
+  unchanged.
+- Updated the `gguf-cli` dependencies to their current stable releases.
 - Releases publish `gguf-rs-lib` to crates.io through trusted publishing and
-  attach prebuilt `gguf-cli` archives, SHA-256 checksums, and CycloneDX SBOMs
-  to the GitHub release.
+  attach prebuilt `gguf-cli` archives for Linux, macOS, and Windows, SHA-256
+  checksums, and CycloneDX SBOMs to the GitHub release.
 
 ## [0.3.0] - 2026-08-03
 
@@ -179,6 +190,7 @@ before the changes collected in this changelog. The repository did not contain
 curated historical release notes, so no earlier change details are inferred
 here.
 
-[Unreleased]: https://github.com/ThreatFlux/gguf/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ThreatFlux/gguf/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/ThreatFlux/gguf/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/ThreatFlux/gguf/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/ThreatFlux/gguf/releases/tag/v0.2.5

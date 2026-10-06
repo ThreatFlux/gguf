@@ -130,6 +130,23 @@ jobs:
       - name: Verify library package
         run: cargo package --locked -p gguf-rs-lib
 
+      # Builds the changelog part of the release notes before anything is
+      # published, so a broken changelog stops the release here.
+      - name: Preview release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/release_notes.py --version "$VERSION" > "${RUNNER_TEMP}/release-notes-preview.md"
+          {
+            echo "### Release notes preview: v${VERSION}"
+            echo
+            echo "GitHub's pull-request list is appended when the release is published."
+            echo
+            cat "${RUNNER_TEMP}/release-notes-preview.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Dry run summary
         if: env.DRY_RUN == 'true'
         env:
@@ -415,6 +432,35 @@ jobs:
             exit 1
           fi
 
+      # Full history and tags locate the previous release tag for the notes.
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.verify-package.outputs.source_sha }}
+
+      # The changelog section for this version (or, when it has none yet, the
+      # Unreleased section of the tagged commit) followed by GitHub's
+      # pull-request list since the previous tag.
+      - name: Build release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify-package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          GENERATE=(-f "tag_name=${TAG}")
+          if PREVIOUS_TAG=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${TAG}^" 2> /dev/null); then
+            GENERATE+=(-f "previous_tag_name=${PREVIOUS_TAG}")
+          fi
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/releases/generate-notes" "${GENERATE[@]}" \
+            --jq .body > "${RUNNER_TEMP}/generated-notes.md"
+          python3 scripts/release_notes.py --version "$VERSION" \
+            --generated "${RUNNER_TEMP}/generated-notes.md" > "${RUNNER_TEMP}/release-notes.md"
+          cat "${RUNNER_TEMP}/release-notes.md"
+
       - name: Download release artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -423,7 +469,10 @@ jobs:
           merge-multiple: true
 
       # The auto-release workflow creates the GitHub Release together with the
-      # tag; a manually pushed tag has none yet, so create it here.
+      # tag, with notes that list only feat, fix and breaking commits; a
+      # manually pushed tag has no release yet, so create it here. Notes this
+      # job already wrote (or edited by hand since) carry the marker and are
+      # kept on a re-run.
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -431,11 +480,17 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$GITHUB_REF_NAME"
+          NOTES="${RUNNER_TEMP}/release-notes.md"
+          MARKER="<!-- gguf-release-notes -->"
           if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             PRERELEASE=()
             [[ "$TAG" == *-* ]] && PRERELEASE=(--prerelease)
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
-              --title "GGUF ${TAG}" --generate-notes "${PRERELEASE[@]}"
+              --title "GGUF ${TAG}" --notes-file "$NOTES" "${PRERELEASE[@]}"
+          elif [[ "$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body)" == *"$MARKER"* ]]; then
+            echo "::notice::$TAG already has release notes from this workflow; keeping them"
+          else
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "GGUF ${TAG}" --notes-file "$NOTES"
           fi
           shopt -s nullglob
           ASSETS=(artifacts/*)

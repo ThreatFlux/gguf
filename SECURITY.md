@@ -2,16 +2,16 @@
 
 ## Supported versions
 
-Security fixes are developed on the default branch, currently staged for
-`0.3.0`. Until 0.3.0 is published, `0.2.5` remains the latest published crate
-and receives security fixes. Earlier patch releases are not maintained.
+Security fixes are developed on the default branch and released as a new
+patch version of the latest published release, currently `0.3.1`. Earlier
+releases are not maintained.
 
 | Version | Supported |
 | --- | --- |
-| Default branch (`0.3.0` prerelease) | Yes |
-| `0.2.5` (latest published) | Yes |
-| `0.2.0`–`0.2.4` | No; upgrade to `0.2.5` |
-| Earlier versions | No |
+| Default branch | Yes |
+| `0.3.1` (latest published) | Yes |
+| `0.3.0` | No; upgrade to `0.3.1` |
+| `0.2.5` and earlier | No; upgrade to `0.3.1` (see the `0.3.0` changelog) |
 
 ## Report a vulnerability
 

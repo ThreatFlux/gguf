@@ -18,6 +18,10 @@ package named `gguf` is not owned by this project.
   succeeds or the version is confirmed to be on crates.io already.
 - `release.yml` never changes a manifest, commits to `main`, or creates a tag.
   Version commits and tags come from `auto-release.yml` or a maintainer.
+- GitHub release notes come from `CHANGELOG.md`: the `## [<version>]` section,
+  or the `## [Unreleased]` section of the tagged commit when the changelog does
+  not name the version yet, followed by GitHub's pull-request list since the
+  previous tag. `scripts/release_notes.py` builds them.
 - crates.io versions are immutable. A defective version can only be yanked and
   superseded.
 
@@ -56,7 +60,9 @@ Conventional Commit subjects since the last tag: `feat:` and `fix:` (or a
 breaking change) cut a release, while `ci:`, `build:`, `chore:`, `docs:` and
 `test:` do not. A release writes the version commit, the annotated `v<version>`
 tag and the GitHub release as the `threatflux-automation` GitHub App, so the
-tag push starts `release.yml` by itself. If the App credentials are not
+tag push starts `release.yml` by itself. The reusable workflow's notes list
+only `feat:`, `fix:` and breaking commits, so `release.yml` replaces them with
+the changelog-based notes described above. If the App credentials are not
 available, the reusable workflow falls back to the workflow token and dispatches
 `release.yml` for the new tag instead.
 
@@ -64,6 +70,15 @@ Rehearse the next automatic release without writing anything:
 
 ```bash
 gh workflow run auto-release.yml --ref main --field dry_run=true
+```
+
+Add user-visible changes to the `## [Unreleased]` section of `CHANGELOG.md` in
+the pull request that makes them. To release changes that carry only `ci:`,
+`build:`, `chore:`, `docs:` or `test:` subjects, such as dependency updates,
+request a patch release explicitly:
+
+```bash
+gh workflow run auto-release.yml --ref main --field version_bump=patch
 ```
 
 ## Prepare a release
@@ -107,8 +122,8 @@ it normally:
 ```bash
 git switch main
 git pull --ff-only
-git tag -s v0.3.1 -m "Release v0.3.1"
-git push origin v0.3.1
+git tag -s v0.3.2 -m "Release v0.3.2"
+git push origin v0.3.2
 ```
 
 If signed tags are not part of the project's established key-management
@@ -128,8 +143,11 @@ The tag push starts `.github/workflows/release.yml`, which:
    If the version is already on crates.io, it skips the upload only when the
    registry checksum matches the crate this tag packages, and fails otherwise;
 6. rechecks the tag again, creates the GitHub release if the tag has none yet,
+   writes the changelog-based release notes and the `GGUF v<version>` title,
    and attaches the archives, checksums, and SBOMs. A re-run keeps every asset
-   that is already attached and uploads only the missing ones.
+   that is already attached and uploads only the missing ones, and keeps notes
+   this job already wrote (they end with a `gguf-release-notes` marker
+   comment), including any manual edits made to them since.
 
 Use one trigger per release. A normal human-pushed tag starts the workflow; do
 not dispatch a duplicate run. If GitHub did not create a tag-triggered run,
@@ -138,7 +156,7 @@ unpublished. Only then dispatch the workflow at the tag with the unprefixed
 version input:
 
 ```bash
-gh workflow run release.yml --ref v0.3.1 --field version=0.3.1
+gh workflow run release.yml --ref v0.3.2 --field version=0.3.2
 ```
 
 A dispatch on a branch performs verification only. Publish and GitHub-release
@@ -151,14 +169,16 @@ warns instead of failing when the requested version differs from the
 manifests:
 
 ```bash
-gh workflow run release.yml --ref main --field version=0.3.0 --field dry_run=true
+gh workflow run release.yml --ref main --field version=0.3.1 --field dry_run=true
 ```
 
 ## Version history notes
 
-`0.3.0` is the latest `gguf-rs-lib` release on crates.io and GitHub, and both
-workspace manifests are at `0.3.0`, so the next automatic release is `0.3.1` or
-later. The repository also contains an annotated public `v0.2.6` tag from the
+`0.3.1` is the latest `gguf-rs-lib` release on crates.io and GitHub, and both
+workspace manifests are at `0.3.1`, so the next automatic release is `0.3.2` or
+later. `0.3.1` was the first release cut by the `threatflux-automation` App,
+published through crates.io trusted publishing, and shipped with prebuilt
+`gguf-cli` archives and SBOMs. The repository also contains an annotated public `v0.2.6` tag from the
 retired auto-version workflow; a GitHub release record was later attached to it,
 but no `0.2.6` crate exists. That version is burned: do not move, delete, or
 reuse the tag, and do not publish a crate under it. `0.3.0` was a minor-version
@@ -172,10 +192,15 @@ breaking change.
 2. Confirm docs.rs successfully built the same version and renders the public
    API.
 3. Verify the GitHub release points to the immutable tag and contains accurate
-   generated notes.
+   notes, and that every archive matches its `.sha256` file.
 4. Test the published dependency from a clean project using the documented
    feature combinations.
 5. Announce only behavior present in the published source.
+6. If the release notes came from the `[Unreleased]` section, open a
+   `docs(changelog):` pull request that renames that section to
+   `## [<version>] - <date>`, starts a new empty `## [Unreleased]` section, and
+   updates the comparison links, so the next release does not repeat the
+   entries.
 
 ## Failure and recovery
 
@@ -192,6 +217,24 @@ configuration), and re-run the failed jobs. The publish job skips a version
 that is already on crates.io with the same checksum, so a re-run never tries to
 upload different source under the same version; a checksum mismatch stops the
 release before any asset is attached.
+
+### Release notes are missing or wrong
+
+`release.yml` writes the notes only while it publishes a tag, and a re-run or a
+dispatch at an existing tag runs that tag's version of the workflow. To repair
+the notes of a published release, build them from the current `main` with the
+same script and edit the release in place; the tag, assets, and crate are not
+touched:
+
+```bash
+VERSION=0.3.1
+gh api --method POST repos/ThreatFlux/gguf/releases/generate-notes \
+  -f tag_name="v${VERSION}" -f previous_tag_name=v0.3.0 --jq .body > generated.md
+python3 scripts/release_notes.py --version "$VERSION" --generated generated.md > notes.md
+gh release edit "v${VERSION}" --repo ThreatFlux/gguf --title "GGUF v${VERSION}" --notes-file notes.md
+```
+
+Use the release's actual previous tag for `previous_tag_name`.
 
 ### The published crate is defective
 
