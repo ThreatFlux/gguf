@@ -147,7 +147,7 @@ cd gguf
 cargo install --locked --path gguf-cli
 ```
 
-Releases after `0.3.0` also attach prebuilt `gguf-cli` archives for Linux,
+Releases from `0.3.1` on also attach prebuilt `gguf-cli` archives for Linux,
 macOS, and Windows, with SHA-256 checksums and CycloneDX SBOMs, to the
 [GitHub release](https://github.com/ThreatFlux/gguf/releases).
 
