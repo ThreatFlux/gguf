@@ -1,6 +1,6 @@
 [package]
 name = "gguf-cli"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 rust-version = "1.87"
 description = "Command-line tool for working with GGUF (GGML Universal Format) files"
