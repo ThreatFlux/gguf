@@ -427,4 +427,39 @@ jobs:
             echo "No release assets were downloaded" >&2
             exit 1
           fi
-          gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+
+          # Assets of a released version are immutable: a re-run keeps every
+          # asset that is already attached and uploads only the missing ones.
+          # An archive and its checksum are kept or uploaded together.
+          declare -A ATTACHED=()
+          while IFS= read -r name; do
+            [[ -n "$name" ]] && ATTACHED["$name"]=1
+          done < <(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          UPLOAD=()
+          for asset in "${ASSETS[@]}"; do
+            name="$(basename "$asset")"
+            [[ "$name" == *.sha256 ]] && continue
+            checksum=""
+            [[ -f "${asset}.sha256" ]] && checksum="${asset}.sha256"
+            checksum_attached=""
+            [[ -n "$checksum" && -n "${ATTACHED["${name}.sha256"]:-}" ]] && checksum_attached=1
+            if [[ -n "${ATTACHED["$name"]:-}" ]]; then
+              if [[ -n "$checksum" && -z "$checksum_attached" ]]; then
+                echo "$name is attached to $TAG without ${name}.sha256; repair the release assets by hand" >&2
+                exit 1
+              fi
+              echo "::notice::$name is already attached to $TAG; keeping the published asset"
+              continue
+            fi
+            if [[ -n "$checksum_attached" ]]; then
+              echo "${name}.sha256 is attached to $TAG without $name; repair the release assets by hand" >&2
+              exit 1
+            fi
+            UPLOAD+=("$asset")
+            [[ -n "$checksum" ]] && UPLOAD+=("$checksum")
+          done
+          if (( ${#UPLOAD[@]} == 0 )); then
+            echo "Every release asset is already attached to $TAG"
+            exit 0
+          fi
+          gh release upload "$TAG" "${UPLOAD[@]}" --repo "$GITHUB_REPOSITORY"

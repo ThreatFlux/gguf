@@ -127,7 +127,8 @@ The tag push starts `.github/workflows/release.yml`, which:
    not changed, skips the upload if the version is already on crates.io, and
    otherwise publishes only `gguf-rs-lib` through trusted publishing;
 6. rechecks the tag again, creates the GitHub release if the tag has none yet,
-   and attaches the archives, checksums, and SBOMs.
+   and attaches the archives, checksums, and SBOMs. A re-run keeps every asset
+   that is already attached and uploads only the missing ones.
 
 Use one trigger per release. A normal human-pushed tag starts the workflow; do
 not dispatch a duplicate run. If GitHub did not create a tag-triggered run,
