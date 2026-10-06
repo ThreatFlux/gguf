@@ -218,6 +218,24 @@ that is already on crates.io with the same checksum, so a re-run never tries to
 upload different source under the same version; a checksum mismatch stops the
 release before any asset is attached.
 
+### Release notes are missing or wrong
+
+`release.yml` writes the notes only while it publishes a tag, and a re-run or a
+dispatch at an existing tag runs that tag's version of the workflow. To repair
+the notes of a published release, build them from the current `main` with the
+same script and edit the release in place; the tag, assets, and crate are not
+touched:
+
+```bash
+VERSION=0.3.1
+gh api --method POST repos/ThreatFlux/gguf/releases/generate-notes \
+  -f tag_name="v${VERSION}" -f previous_tag_name=v0.3.0 --jq .body > generated.md
+python3 scripts/release_notes.py --version "$VERSION" --generated generated.md > notes.md
+gh release edit "v${VERSION}" --repo ThreatFlux/gguf --title "GGUF v${VERSION}" --notes-file notes.md
+```
+
+Use the release's actual previous tag for `previous_tag_name`.
+
 ### The published crate is defective
 
 Assess whether users need an advisory or workaround, yank the affected version

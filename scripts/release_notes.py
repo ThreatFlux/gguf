@@ -2,9 +2,10 @@
 """Write the GitHub release notes for one gguf-rs-lib version.
 
 The curated part comes from CHANGELOG.md: the ``## [<version>]`` section when
-the changelog already names the version, otherwise the ``## [Unreleased]``
-section of the tagged commit, which lists the changes that tag adds. GitHub's
-generated pull-request list and comparison link follow when they are given.
+the changelog already names the version (even when that section is empty),
+otherwise the ``## [Unreleased]`` section of the tagged commit, which lists the
+changes that tag adds. GitHub's generated pull-request list and comparison link
+follow when they are given.
 
 The notes end with a marker comment so release.yml can recognise notes it has
 already written and leave them (and any later manual edits) unchanged.
@@ -23,8 +24,11 @@ LINK_DEFINITION_RE = re.compile(r"^\[[^\]]+\]:\s+\S+")
 VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 
 
-def changelog_section(text: str, name: str) -> str:
-    """Return the body of the ``## [name]`` section, without link definitions."""
+def changelog_section(text: str, name: str) -> str | None:
+    """Return the body of the ``## [name]`` section, or None when it is absent.
+
+    Link reference definitions are dropped from the body.
+    """
     body: list[str] | None = None
     for line in text.splitlines():
         match = SECTION_RE.match(line)
@@ -36,7 +40,7 @@ def changelog_section(text: str, name: str) -> str:
             continue
         if body is not None and not LINK_DEFINITION_RE.match(line):
             body.append(line)
-    return "\n".join(body or []).strip()
+    return None if body is None else "\n".join(body).strip()
 
 
 def demote_headings(markdown: str) -> str:
@@ -47,7 +51,9 @@ def demote_headings(markdown: str) -> str:
 def build_notes(version: str, changelog: str, generated: str) -> str:
     curated = changelog_section(changelog, version)
     source = f"[{version}]"
-    if not curated:
+    if curated is None:
+        # Only a version the changelog does not name yet falls back to the
+        # Unreleased section; an empty version section stays empty.
         curated = changelog_section(changelog, "Unreleased")
         source = "[Unreleased]"
 
