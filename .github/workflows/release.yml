@@ -10,24 +10,38 @@ on:
         description: Version to verify or release, without the v prefix
         required: true
         type: string
+      dry_run:
+        description: Verify, build and package everything without publishing to crates.io or touching the GitHub Release
+        required: false
+        type: boolean
+        default: false
 
+# Read-only by default. Only the GitHub Release job gets contents: write and
+# only the crates.io job gets id-token: write.
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  # A dry run gets its own group, so a rehearsal never queues behind (or
+  # alongside) a real release of the same ref.
+  group: release-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '-dry-run' || '' }}
   cancel-in-progress: false
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.0
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CRATE_NAME: gguf-rs-lib
+  CLI_NAME: gguf-cli
+  # Only workflow_dispatch can set this; tag pushes always perform a real release.
+  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
 
 jobs:
   verify-package:
     name: Verify Release Package
     runs-on: ubuntu-latest
     outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
       tag_object: ${{ steps.provenance.outputs.tag_object }}
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -37,6 +51,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Every later job checks out this exact commit, so a moving branch
+      # cannot make the binaries, SBOMs or crate differ from what was verified.
+      - name: Resolve source commit
+        id: source
+        run: echo "sha=$(git rev-parse --verify HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
         with:
@@ -45,14 +65,6 @@ jobs:
       - name: Verify active compiler
         run: rustc --version --verbose
 
-      - name: Cache Cargo data
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-release-1.99.0-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Verify release version
         id: version
         env:
@@ -60,21 +72,27 @@ jobs:
         shell: bash
         run: |
           METADATA=$(cargo metadata --locked --no-deps --format-version 1)
-          LIB_VERSION=$(jq -er '.packages[] | select(.name == "gguf-rs-lib") | .version' <<< "$METADATA")
-          CLI_VERSION=$(jq -er '.packages[] | select(.name == "gguf-cli") | .version' <<< "$METADATA")
+          LIB_VERSION=$(jq -er --arg name "$CRATE_NAME" '.packages[] | select(.name == $name) | .version' <<< "$METADATA")
+          CLI_VERSION=$(jq -er --arg name "$CLI_NAME" '.packages[] | select(.name == $name) | .version' <<< "$METADATA")
 
-          if ! jq -e '.packages[] | select(.name == "gguf-cli") | .publish == []' \
+          if ! jq -e --arg name "$CLI_NAME" '.packages[] | select(.name == $name) | .publish == []' \
             <<< "$METADATA" >/dev/null; then
-            echo "gguf-cli must remain publish = false" >&2
+            echo "$CLI_NAME must remain publish = false" >&2
             exit 1
           fi
           if [[ "$LIB_VERSION" != "$CLI_VERSION" ]]; then
-            echo "Workspace versions differ: gguf-rs-lib=$LIB_VERSION, gguf-cli=$CLI_VERSION" >&2
+            echo "Workspace versions differ: $CRATE_NAME=$LIB_VERSION, $CLI_NAME=$CLI_VERSION" >&2
             exit 1
           fi
           if [[ -n "$REQUESTED_VERSION" && "$LIB_VERSION" != "$REQUESTED_VERSION" ]]; then
-            echo "Package version $LIB_VERSION does not match requested version $REQUESTED_VERSION" >&2
-            exit 1
+            # A dry run may rehearse a version that is not bumped yet, so it
+            # only warns; it packages and verifies the manifest version.
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "::warning::Package version $LIB_VERSION does not match requested version $REQUESTED_VERSION; the dry run verifies $LIB_VERSION"
+            else
+              echo "Package version $LIB_VERSION does not match requested version $REQUESTED_VERSION" >&2
+              exit 1
+            fi
           fi
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             EXPECTED_TAG="v${LIB_VERSION}"
@@ -103,20 +121,6 @@ jobs:
           fi
           echo "tag_object=$(git rev-parse "$TAG_REF")" >> "$GITHUB_OUTPUT"
 
-      - name: Verify version is unpublished
-        env:
-          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
-        shell: bash
-        run: |
-          CRATE_DATA=$(curl --fail --silent --show-error --retry 3 \
-            --user-agent "ThreatFlux-gguf-release/${GITHUB_RUN_ID}" \
-            https://crates.io/api/v1/crates/gguf-rs-lib)
-          if jq -e --arg version "$PACKAGE_VERSION" \
-            '.versions | any(.num == $version)' <<< "$CRATE_DATA" >/dev/null; then
-            echo "gguf-rs-lib $PACKAGE_VERSION is already published on crates.io" >&2
-            exit 1
-          fi
-
       - name: Run workspace tests
         run: cargo test --locked --workspace --all-features
 
@@ -126,25 +130,184 @@ jobs:
       - name: Verify library package
         run: cargo package --locked -p gguf-rs-lib
 
-      - name: Verify crates.io publication
-        run: cargo publish --locked -p gguf-rs-lib --dry-run
+      - name: Dry run summary
+        if: env.DRY_RUN == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          {
+            echo "### Release dry run: v${VERSION}"
+            echo
+            echo "Source commit: \`${SOURCE_SHA}\`."
+            echo
+            echo "Builds every gguf-cli target, generates the SBOMs and runs \`cargo publish --dry-run\` for ${CRATE_NAME}."
+            echo "Nothing is published to crates.io and no tag, GitHub Release or release asset is created or changed."
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  publish-crate:
-    name: Publish gguf-rs-lib
-    if: startsWith(github.ref, 'refs/tags/')
+  build:
+    name: Build gguf-cli (${{ matrix.target }})
     needs: verify-package
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    environment:
-      name: crates-io
-      url: https://crates.io/crates/gguf-rs-lib
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-amd64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            artifact: linux-musl-amd64
+            musl: true
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: linux-arm64
+          - os: macos-15
+            target: aarch64-apple-darwin
+            artifact: macos-arm64
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: macos-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: windows-amd64
+    env:
+      TARGET: ${{ matrix.target }}
+      ARCHIVE: gguf-cli-v${{ needs.verify-package.outputs.version }}-${{ matrix.artifact }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
           persist-credentials: false
+          ref: ${{ needs.verify-package.outputs.source_sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: 1.99.0
+          targets: ${{ matrix.target }}
+
+      - name: Install musl tools
+        if: matrix.musl
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build gguf-cli
+        shell: bash
+        run: cargo build --locked --release --target "$TARGET" -p gguf-cli --bin gguf-cli
+
+      # Every target runs natively on its runner, so each binary is executed
+      # before it is packaged.
+      - name: Smoke test gguf-cli
+        shell: bash
+        run: |
+          BINARY="target/${TARGET}/release/gguf-cli"
+          [[ "$RUNNER_OS" == "Windows" ]] && BINARY="${BINARY}.exe"
+          "$BINARY" --version
+          "$BINARY" --help > /dev/null
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "dist/${ARCHIVE}"
+          cp "target/${TARGET}/release/gguf-cli" LICENSE README.md "dist/${ARCHIVE}/"
+          tar -C dist -czf "${ARCHIVE}.tar.gz" "${ARCHIVE}"
+          shasum -a 256 "${ARCHIVE}.tar.gz" > "${ARCHIVE}.tar.gz.sha256"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "dist/${env:ARCHIVE}" | Out-Null
+          Copy-Item "target/${env:TARGET}/release/gguf-cli.exe", LICENSE, README.md "dist/${env:ARCHIVE}/"
+          $archive = "${env:ARCHIVE}.zip"
+          Compress-Archive -Path "dist/${env:ARCHIVE}" -DestinationPath $archive
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Out-File -Encoding ascii "$archive.sha256"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.artifact }}
+          path: ${{ env.ARCHIVE }}.*
+          if-no-files-found: error
+          retention-days: 5
+
+  sbom:
+    name: Generate Release SBOMs
+    needs: verify-package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify-package.outputs.source_sha }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: 1.99.0
+
+      - name: Install cargo-cyclonedx
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: cargo-cyclonedx@0.5.9
+
+      # cargo-cyclonedx writes one CycloneDX document per workspace package
+      # next to its manifest: the published library and the CLI binary.
+      - name: Generate SBOM files
+        env:
+          VERSION: ${{ needs.verify-package.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo cyclonedx --all-features --format json --spec-version 1.5 --override-filename sbom
+          mkdir -p sbom-dist
+          mv sbom.json "sbom-dist/gguf-rs-lib-v${VERSION}.cdx.json"
+          mv gguf-cli/sbom.json "sbom-dist/gguf-cli-v${VERSION}.cdx.json"
+          for package in gguf-rs-lib gguf-cli; do
+            jq -e --arg name "$package" --arg version "$VERSION" \
+              '.bomFormat == "CycloneDX" and .metadata.component.name == $name and .metadata.component.version == $version' \
+              "sbom-dist/${package}-v${VERSION}.cdx.json" > /dev/null
+          done
+          ls -l sbom-dist
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-sbom
+          path: sbom-dist/*.cdx.json
+          if-no-files-found: error
+          retention-days: 5
+
+  publish-crate:
+    name: Publish gguf-rs-lib
+    # Real publishes happen only for a tag ref; a dry run on any ref runs
+    # `cargo publish --dry-run`. A real dispatch on a branch verifies only.
+    if: (github.event_name == 'workflow_dispatch' && inputs.dry_run) || startsWith(github.ref, 'refs/tags/')
+    needs:
+      - verify-package
+      - build
+      - sbom
+    runs-on: ubuntu-latest
+    # crates.io trusted publishing trusts this workflow file (release.yml) in
+    # the crates-io environment. A dry run gets an empty environment name, so
+    # it runs without an environment and records no deployment.
+    environment:
+      name: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'crates-io' || '' }}
+    permissions:
+      contents: read
+      id-token: write # Exchanged for a short-lived crates.io token; no registry secret is used.
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ needs.verify-package.outputs.source_sha }}
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
@@ -154,15 +317,8 @@ jobs:
       - name: Verify active compiler
         run: rustc --version --verbose
 
-      - name: Cache Cargo data
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-publish-1.99.0-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Recheck immutable release tag
+        if: env.DRY_RUN != 'true'
         env:
           EXPECTED_TAG_OBJECT: ${{ needs.verify-package.outputs.tag_object }}
         shell: bash
@@ -174,50 +330,101 @@ jobs:
             exit 1
           fi
 
-      - name: Publish to crates.io
+      - name: Verify crates.io publication (dry run)
+        if: env.DRY_RUN == 'true'
+        run: cargo publish --locked -p gguf-rs-lib --dry-run
+
+      # crates.io versions are immutable, so a rerun (or a second run for the
+      # same tag) skips a version that is already published instead of failing.
+      - name: Check whether the version is already published
+        id: pending
+        if: env.DRY_RUN != 'true'
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          VERSION: ${{ needs.verify-package.outputs.version }}
         shell: bash
         run: |
-          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
-            echo "Required crates.io registry credential is unavailable" >&2
-            exit 1
-          fi
-          cargo publish --locked -p gguf-rs-lib
+          set -euo pipefail
+          STATUS=$(curl --silent --show-error --retry 3 --retry-all-errors \
+            --user-agent "${GITHUB_REPOSITORY}-release/${GITHUB_RUN_ID} (https://github.com/${GITHUB_REPOSITORY})" \
+            --output /dev/null --write-out '%{http_code}' \
+            "https://crates.io/api/v1/crates/${CRATE_NAME}/${VERSION}")
+          case "$STATUS" in
+            200)
+              echo "::notice::${CRATE_NAME} ${VERSION} is already on crates.io; skipping the upload"
+              echo "publish=false" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "crates.io returned HTTP ${STATUS} for ${CRATE_NAME} ${VERSION}" >&2
+              exit 1
+              ;;
+          esac
 
-  create-release:
-    name: Create GitHub Release
-    if: startsWith(github.ref, 'refs/tags/')
+      - name: Authenticate with crates.io
+        id: crates-io-auth
+        if: env.DRY_RUN != 'true' && steps.pending.outputs.publish == 'true'
+        uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+
+      - name: Publish to crates.io
+        if: env.DRY_RUN != 'true' && steps.pending.outputs.publish == 'true'
+        env:
+          # Short-lived trusted-publishing token; the auth action revokes it in
+          # its post step. No long-lived registry secret is read.
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io-auth.outputs.token }}
+        run: cargo publish --locked -p gguf-rs-lib
+
+  github-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/') && !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
     needs:
       - verify-package
+      - build
+      - sbom
       - publish-crate
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write # Creates or updates the GitHub Release and uploads its assets.
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
       - name: Recheck immutable release tag
         env:
+          GH_TOKEN: ${{ github.token }}
           EXPECTED_TAG_OBJECT: ${{ needs.verify-package.outputs.tag_object }}
         shell: bash
         run: |
-          TAG_REF="refs/tags/${GITHUB_REF_NAME}"
-          REMOTE_TAG_OBJECT=$(git ls-remote --tags origin "$TAG_REF" | awk 'NR == 1 { print $1 }')
+          REMOTE_TAG_OBJECT=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${GITHUB_REF_NAME}" --jq .object.sha)
           if [[ -z "$EXPECTED_TAG_OBJECT" || "$REMOTE_TAG_OBJECT" != "$EXPECTED_TAG_OBJECT" ]]; then
             echo "Release tag $GITHUB_REF_NAME changed or disappeared after publication" >&2
             exit 1
           fi
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: GGUF ${{ github.ref_name }}
-          generate_release_notes: true
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      # The auto-release workflow creates the GitHub Release together with the
+      # tag; a manually pushed tag has none yet, so create it here.
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            PRERELEASE=()
+            [[ "$TAG" == *-* ]] && PRERELEASE=(--prerelease)
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "GGUF ${TAG}" --generate-notes "${PRERELEASE[@]}"
+          fi
+          shopt -s nullglob
+          ASSETS=(artifacts/*)
+          if (( ${#ASSETS[@]} == 0 )); then
+            echo "No release assets were downloaded" >&2
+            exit 1
+          fi
+          gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber

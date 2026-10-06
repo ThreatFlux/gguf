@@ -138,13 +138,18 @@ A bare `--no-default-features` build is not a supported configuration; enable
 
 ## CLI
 
-`gguf-cli` is currently a workspace-only package. Install it from a clone:
+`gguf-cli` is a workspace-only package and is not published to crates.io.
+Install it from a clone:
 
 ```bash
 git clone https://github.com/ThreatFlux/gguf.git
 cd gguf
 cargo install --locked --path gguf-cli
 ```
+
+Releases after `0.3.0` also attach prebuilt `gguf-cli` archives for Linux,
+macOS, and Windows, with SHA-256 checksums and CycloneDX SBOMs, to the
+[GitHub release](https://github.com/ThreatFlux/gguf/releases).
 
 Implemented paths include:
 

@@ -12,9 +12,11 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; every main commit keeps its own
+# result, because Auto Release waits on it.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.0
@@ -215,7 +217,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
+      id-token: write # Codecov OIDC upload; no CODECOV_TOKEN secret is used.
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

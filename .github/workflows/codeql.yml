@@ -14,6 +14,12 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; runs for main and scheduled runs
+# always finish.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   RUSTUP_TOOLCHAIN: 1.99.0
 
@@ -22,9 +28,9 @@ jobs:
     name: Analyze Rust
     runs-on: ubuntu-latest
     permissions:
-      actions: read
+      actions: read # Lets CodeQL read the workflow run it analyzes.
       contents: read
-      security-events: write
+      security-events: write # Uploads the CodeQL results to code scanning.
     steps:
       - name: Checkout sources
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

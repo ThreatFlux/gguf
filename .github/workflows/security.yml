@@ -14,6 +14,12 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request runs are cancelled; runs for main and scheduled runs
+# always finish, because Auto Release waits on their result.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   RUSTUP_TOOLCHAIN: 1.99.0
 

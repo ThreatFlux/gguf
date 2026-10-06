@@ -12,9 +12,10 @@ on:
 permissions:
   contents: read
 
+# Superseded pull request builds are cancelled; main deployments run in order.
 concurrency:
   group: docs-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   RUSTUP_TOOLCHAIN: 1.99.0
@@ -70,8 +71,8 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     permissions:
-      pages: write
-      id-token: write
+      pages: write # Publishes the documentation site.
+      id-token: write # Proves the deployment's origin to GitHub Pages.
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
