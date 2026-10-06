@@ -336,6 +336,9 @@ jobs:
 
       # crates.io versions are immutable, so a rerun (or a second run for the
       # same tag) skips a version that is already published instead of failing.
+      # `cargo package` output is reproducible, so a published version is only
+      # accepted when its registry checksum matches the crate this tag packages;
+      # a version uploaded from different source stops the release here.
       - name: Check whether the version is already published
         id: pending
         if: env.DRY_RUN != 'true'
@@ -344,13 +347,22 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          RESPONSE="${RUNNER_TEMP}/crates-io-version.json"
           STATUS=$(curl --silent --show-error --retry 3 --retry-all-errors \
             --user-agent "${GITHUB_REPOSITORY}-release/${GITHUB_RUN_ID} (https://github.com/${GITHUB_REPOSITORY})" \
-            --output /dev/null --write-out '%{http_code}' \
+            --output "$RESPONSE" --write-out '%{http_code}' \
             "https://crates.io/api/v1/crates/${CRATE_NAME}/${VERSION}")
           case "$STATUS" in
             200)
-              echo "::notice::${CRATE_NAME} ${VERSION} is already on crates.io; skipping the upload"
+              REGISTRY_SHA256=$(jq -er '.version.checksum' "$RESPONSE")
+              cargo package --locked -p "$CRATE_NAME" --no-verify
+              LOCAL_SHA256=$(sha256sum "target/package/${CRATE_NAME}-${VERSION}.crate" | awk '{ print $1 }')
+              if [[ "$LOCAL_SHA256" != "$REGISTRY_SHA256" ]]; then
+                echo "crates.io already has ${CRATE_NAME} ${VERSION} with checksum ${REGISTRY_SHA256}," >&2
+                echo "but ${GITHUB_REF_NAME} packages to ${LOCAL_SHA256}; the published crate is not this source" >&2
+                exit 1
+              fi
+              echo "::notice::${CRATE_NAME} ${VERSION} is already on crates.io with this tag's checksum; skipping the upload"
               echo "publish=false" >> "$GITHUB_OUTPUT"
               ;;
             404)

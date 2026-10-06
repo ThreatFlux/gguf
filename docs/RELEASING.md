@@ -124,8 +124,9 @@ The tag push starts `.github/workflows/release.yml`, which:
 4. builds and runs `gguf-cli` for Linux (x86_64 glibc and musl, arm64), macOS
    (arm64, x86_64), and Windows (x86_64), and generates CycloneDX SBOMs;
 5. runs in the `crates-io` environment, rechecks that the remote tag object has
-   not changed, skips the upload if the version is already on crates.io, and
-   otherwise publishes only `gguf-rs-lib` through trusted publishing;
+   not changed, and publishes only `gguf-rs-lib` through trusted publishing.
+   If the version is already on crates.io, it skips the upload only when the
+   registry checksum matches the crate this tag packages, and fails otherwise;
 6. rechecks the tag again, creates the GitHub release if the tag has none yet,
    and attaches the archives, checksums, and SBOMs. A re-run keeps every asset
    that is already attached and uploads only the missing ones.
@@ -188,8 +189,9 @@ it; bump the version and create a new tag after the fix is merged.
 Release assets are not attached because that job depends on the publish job.
 Check crates.io, fix the cause (for example the trusted-publisher
 configuration), and re-run the failed jobs. The publish job skips a version
-that is already on crates.io, so a re-run never tries to upload different
-source under the same version.
+that is already on crates.io with the same checksum, so a re-run never tries to
+upload different source under the same version; a checksum mismatch stops the
+release before any asset is attached.
 
 ### The published crate is defective
 
