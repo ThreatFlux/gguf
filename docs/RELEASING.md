@@ -11,21 +11,29 @@ package named `gguf` is not owned by this project.
 - Primary release verification uses Rust 1.99.0, and CI separately enforces the
   declared Rust 1.87 minimum.
 - Release tags are annotated or signed and use exactly `v<package-version>`.
-- Only `gguf-rs-lib` is published to crates.io.
-- The release workflow does not publish `gguf-cli` or attach example binaries.
-- A GitHub release is created only after the registry publication succeeds.
-- The workflow never changes a manifest, commits to `main`, or creates a tag.
+- Only `gguf-rs-lib` is published to crates.io. `gguf-cli` stays
+  `publish = false`; its prebuilt archives are attached to the GitHub release.
+- Release assets (the `gguf-cli` archives, their SHA-256 files, and CycloneDX
+  SBOMs for both packages) are attached only after the registry publication
+  succeeds or the version is confirmed to be on crates.io already.
+- `release.yml` never changes a manifest, commits to `main`, or creates a tag.
+  Version commits and tags come from `auto-release.yml` or a maintainer.
 - crates.io versions are immutable. A defective version can only be yanked and
   superseded.
 
 ## Required repository and registry access
 
-Create a protected GitHub environment named `crates-io`. Restrict deployments
-to `v*` tags and require approval from a maintainer who did not initiate the
-release. The organization-level `CARGO_REGISTRY_TOKEN` Actions secret must be
-available to this repository and belong to an appropriately scoped crates.io
-automation identity. The workflow exposes it only to the `cargo publish` step;
-never print, persist, or pass it to third-party actions.
+`gguf-rs-lib` uses crates.io trusted publishing. Its crates.io trusted
+publisher is the `ThreatFlux/gguf` repository, the `release.yml` workflow, and
+the `crates-io` environment, so the workflow file name and the environment name
+must not change. The publish job requests a GitHub OIDC token (`id-token:
+write`), exchanges it with `rust-lang/crates-io-auth-action` for a short-lived
+crates.io token that is revoked when the job ends, and reads no registry secret.
+Do not add a `CARGO_REGISTRY_TOKEN` secret back to the workflow.
+
+Keep the GitHub environment named `crates-io`. Restricting its deployments to
+`v*` tags, or requiring a reviewer, adds a second gate in front of every
+publication.
 
 Protect `v*` tags with a repository ruleset. Ordinary writers must not be able
 to create, move, or delete release tags. Configure the release maintainer or
@@ -37,9 +45,26 @@ read-only and prevent GitHub Actions from approving pull requests; individual
 jobs in this repository declare the narrower write permissions they need.
 
 On crates.io, ensure `gguf-rs-lib` has at least two accountable owners or an
-appropriate organization team. Rotate the registry credential on personnel or
-ownership changes and review repository access to the organization secret
-regularly.
+appropriate organization team, and review the trusted-publisher configuration
+on personnel or ownership changes.
+
+## Automatic releases
+
+`auto-release.yml` runs after `CI` and `Security` succeed for a push to `main`.
+It calls the ThreatFlux reusable auto-release workflow, which reads the
+Conventional Commit subjects since the last tag: `feat:` and `fix:` (or a
+breaking change) cut a release, while `ci:`, `build:`, `chore:`, `docs:` and
+`test:` do not. A release writes the version commit, the annotated `v<version>`
+tag and the GitHub release as the `threatflux-automation` GitHub App, so the
+tag push starts `release.yml` by itself. If the App credentials are not
+available, the reusable workflow falls back to the workflow token and dispatches
+`release.yml` for the new tag instead.
+
+Rehearse the next automatic release without writing anything:
+
+```bash
+gh workflow run auto-release.yml --ref main --field dry_run=true
+```
 
 ## Prepare a release
 
@@ -82,8 +107,8 @@ it normally:
 ```bash
 git switch main
 git pull --ff-only
-git tag -s v0.3.0 -m "Release v0.3.0"
-git push origin v0.3.0
+git tag -s v0.3.1 -m "Release v0.3.1"
+git push origin v0.3.1
 ```
 
 If signed tags are not part of the project's established key-management
@@ -96,11 +121,15 @@ The tag push starts `.github/workflows/release.yml`, which:
    agree;
 2. requires an annotated tag whose commit is reachable from `origin/main`;
 3. tests the workspace and verifies the exact `gguf-rs-lib` package;
-4. confirms the version is absent from crates.io and performs a dry run;
-5. waits for approval in the protected `crates-io` environment;
-6. rechecks that the remote tag object has not changed and publishes only
-   `gguf-rs-lib` with the protected organization registry credential;
-7. rechecks the tag again and creates the GitHub release.
+4. builds and runs `gguf-cli` for Linux (x86_64 glibc and musl, arm64), macOS
+   (arm64, x86_64), and Windows (x86_64), and generates CycloneDX SBOMs;
+5. runs in the `crates-io` environment, rechecks that the remote tag object has
+   not changed, and publishes only `gguf-rs-lib` through trusted publishing.
+   If the version is already on crates.io, it skips the upload only when the
+   registry checksum matches the crate this tag packages, and fails otherwise;
+6. rechecks the tag again, creates the GitHub release if the tag has none yet,
+   and attaches the archives, checksums, and SBOMs. A re-run keeps every asset
+   that is already attached and uploads only the missing ones.
 
 Use one trigger per release. A normal human-pushed tag starts the workflow; do
 not dispatch a duplicate run. If GitHub did not create a tag-triggered run,
@@ -109,23 +138,32 @@ unpublished. Only then dispatch the workflow at the tag with the unprefixed
 version input:
 
 ```bash
-gh workflow run release.yml --ref v0.3.0 --field version=0.3.0
+gh workflow run release.yml --ref v0.3.1 --field version=0.3.1
 ```
 
 A dispatch on a branch performs verification only. Publish and GitHub-release
 jobs are tag-gated.
 
-## Current version reconciliation
+Rehearse the whole pipeline on any ref with `dry_run`. A dry run builds every
+target, generates the SBOMs, and runs `cargo publish --dry-run`, but it never
+enters the `crates-io` environment, publishes, or changes a tag or release. It
+warns instead of failing when the requested version differs from the
+manifests:
 
-As of 2026-08-03, crates.io and the latest GitHub release are at `0.2.5`. The
-workspace manifests are staged at `0.3.0`. The repository also contains an
-annotated public `v0.2.6` tag from the retired auto-version workflow, but there
-is no `0.2.6` crate or GitHub release. That version is burned: do not move,
-delete, or reuse the tag, and do not publish a crate under it. The next release
-candidate is `0.3.0`; create `v0.3.0` only from the reviewed release commit on
-`main` after all preparation checks pass. The minor-version increase is
-required because correcting public `#[repr(u32)]` tensor-type discriminants is
-a breaking change; do not ship these changes as `0.2.7`.
+```bash
+gh workflow run release.yml --ref main --field version=0.3.0 --field dry_run=true
+```
+
+## Version history notes
+
+`0.3.0` is the latest `gguf-rs-lib` release on crates.io and GitHub, and both
+workspace manifests are at `0.3.0`, so the next automatic release is `0.3.1` or
+later. The repository also contains an annotated public `v0.2.6` tag from the
+retired auto-version workflow; a GitHub release record was later attached to it,
+but no `0.2.6` crate exists. That version is burned: do not move, delete, or
+reuse the tag, and do not publish a crate under it. `0.3.0` was a minor-version
+increase because correcting public `#[repr(u32)]` tensor-type discriminants is a
+breaking change.
 
 ## After publication
 
@@ -148,9 +186,12 @@ it; bump the version and create a new tag after the fix is merged.
 
 ### crates.io publication fails
 
-The GitHub release is not created because it depends on successful registry
-publication. Check crates.io before retrying. If the version exists, never try
-to upload different source under the same version.
+Release assets are not attached because that job depends on the publish job.
+Check crates.io, fix the cause (for example the trusted-publisher
+configuration), and re-run the failed jobs. The publish job skips a version
+that is already on crates.io with the same checksum, so a re-run never tries to
+upload different source under the same version; a checksum mismatch stops the
+release before any asset is attached.
 
 ### The published crate is defective
 

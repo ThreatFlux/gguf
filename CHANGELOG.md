@@ -6,6 +6,12 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Releases publish `gguf-rs-lib` to crates.io through trusted publishing and
+  attach prebuilt `gguf-cli` archives, SHA-256 checksums, and CycloneDX SBOMs
+  to the GitHub release.
+
 ## [0.3.0] - 2026-08-03
 
 Version `0.2.6` was not published, but its public tag is immutable and will not
