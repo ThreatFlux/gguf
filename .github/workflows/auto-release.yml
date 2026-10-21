@@ -49,7 +49,7 @@ jobs:
       actions: write # Dispatches release.yml only when the GitHub App token is unavailable.
       contents: write # Release commit, annotated tag and GitHub Release.
       pull-requests: write # Required by the reusable workflow's release job.
-    uses: ThreatFlux/github_actions/.github/workflows/reusable-auto-release.yml@eb9f3cf78c3899be0c4c9323d5cc86de5e1fdee8 # v0.7.7
+    uses: ThreatFlux/github_actions/.github/workflows/reusable-auto-release.yml@ad88f2f0cc91e6a4f2737040af917e732a53e7cc # v0.7.8
     with:
       bump: ${{ github.event.inputs.version_bump || 'auto' }}
       # Only a manual dispatch can request a dry run; workflow_run always releases.

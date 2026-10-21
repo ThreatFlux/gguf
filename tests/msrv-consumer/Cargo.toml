@@ -1,0 +1,16 @@
+[package]
+name = "gguf-msrv-consumer"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+
+[workspace]
+resolver = "2"
+
+[dependencies]
+gguf-rs-lib = { path = "../..", default-features = false, features = ["alloc"] }
+
+[[test]]
+name = "alloc_only"
+path = "../alloc_only.rs"

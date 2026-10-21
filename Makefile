@@ -7,7 +7,7 @@ YAMLLINT ?= yamllint
 
 all: check
 
-ci-local: check workflow-check
+ci-local: check workflow-check msrv-check
 	$(CARGO) build --locked -p gguf-rs-lib --examples --all-features
 	$(CARGO) package --locked --allow-dirty -p gguf-rs-lib
 
@@ -88,3 +88,10 @@ help:
 	@echo "  coverage       write reports below target/coverage"
 	@echo "  audit          run cargo-audit (must be installed)"
 	@echo "  clean          remove Cargo build output"
+
+# Latest proptest requires Rust 1.88 only for the stable development harness.
+# Verify the consumer contract independently, retaining the alloc API suite.
+.PHONY: msrv-check
+msrv-check:
+	$(CARGO) +1.87.0 check --locked --workspace --all-features
+	CARGO_TARGET_DIR="$(CURDIR)/target/msrv-consumer" $(CARGO) +1.87.0 test --locked --manifest-path tests/msrv-consumer/Cargo.toml
