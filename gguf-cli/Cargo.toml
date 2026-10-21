@@ -29,9 +29,9 @@ anyhow = "1.0.104"
 
 # Serialization for output formats
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151", features = ["preserve_order"] }
-serde_yaml = "0.9.34"
-toml = "1.1.6"
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+serde_yaml = { package = "yaml_serde", version = "0.10.7" }
+toml = "1.1.8"
 
 # Terminal and output formatting
 colored = { version = "3.1.1", optional = true }
