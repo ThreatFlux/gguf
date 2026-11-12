@@ -52,60 +52,141 @@ pub mod blocks {
         };
     }
 
-    opaque_block!(/// Q4_0 block: 32 weights in 18 bytes.
-        Q4_0Block, 18);
-    opaque_block!(/// Q4_1 block: 32 weights in 20 bytes.
-        Q4_1Block, 20);
-    opaque_block!(/// Q5_0 block: 32 weights in 22 bytes.
-        Q5_0Block, 22);
-    opaque_block!(/// Q5_1 block: 32 weights in 24 bytes.
-        Q5_1Block, 24);
-    opaque_block!(/// Q8_0 block: 32 weights in 34 bytes.
-        Q8_0Block, 34);
-    opaque_block!(/// Q8_1 block: 32 weights in 36 bytes.
-        Q8_1Block, 36);
-    opaque_block!(/// Q2_K super-block: 256 weights in 84 bytes.
-        Q2_KBlock, 84);
-    opaque_block!(/// Q3_K super-block: 256 weights in 110 bytes.
-        Q3_KBlock, 110);
-    opaque_block!(/// Q4_K super-block: 256 weights in 144 bytes.
-        Q4_KBlock, 144);
-    opaque_block!(/// Q5_K super-block: 256 weights in 176 bytes.
-        Q5_KBlock, 176);
-    opaque_block!(/// Q6_K super-block: 256 weights in 210 bytes.
-        Q6_KBlock, 210);
-    opaque_block!(/// Q8_K super-block: 256 weights in 292 bytes.
-        Q8_KBlock, 292);
-    opaque_block!(/// IQ2_XXS super-block: 256 weights in 66 bytes.
-        IQ2_XXSBlock, 66);
-    opaque_block!(/// IQ2_XS super-block: 256 weights in 74 bytes.
-        IQ2_XSBlock, 74);
-    opaque_block!(/// IQ3_XXS super-block: 256 weights in 98 bytes.
-        IQ3_XXSBlock, 98);
-    opaque_block!(/// IQ1_S super-block: 256 weights in 50 bytes.
-        IQ1_SBlock, 50);
-    opaque_block!(/// IQ4_NL block: 32 weights in 18 bytes.
-        IQ4_NLBlock, 18);
-    opaque_block!(/// IQ3_S super-block: 256 weights in 110 bytes.
-        IQ3_SBlock, 110);
-    opaque_block!(/// IQ2_S super-block: 256 weights in 82 bytes.
-        IQ2_SBlock, 82);
-    opaque_block!(/// IQ4_XS super-block: 256 weights in 136 bytes.
-        IQ4_XSBlock, 136);
-    opaque_block!(/// IQ1_M super-block: 256 weights in 56 bytes.
-        IQ1_MBlock, 56);
-    opaque_block!(/// TQ1_0 block: 256 weights in 54 bytes.
-        TQ1_0Block, 54);
-    opaque_block!(/// TQ2_0 block: 256 weights in 66 bytes.
-        TQ2_0Block, 66);
-    opaque_block!(/// MXFP4 block: 32 weights in 17 bytes.
-        MXFP4Block, 17);
-    opaque_block!(/// NVFP4 block: 64 weights in 36 bytes.
-        NVFP4Block, 36);
-    opaque_block!(/// Q1_0 block: 128 weights in 18 bytes.
-        Q1_0Block, 18);
-    opaque_block!(/// Q2_0 block: 64 weights in 18 bytes.
-        Q2_0Block, 18);
+    opaque_block!(
+        /// Q4_0 block: 32 weights in 18 bytes.
+        Q4_0Block,
+        18
+    );
+    opaque_block!(
+        /// Q4_1 block: 32 weights in 20 bytes.
+        Q4_1Block,
+        20
+    );
+    opaque_block!(
+        /// Q5_0 block: 32 weights in 22 bytes.
+        Q5_0Block,
+        22
+    );
+    opaque_block!(
+        /// Q5_1 block: 32 weights in 24 bytes.
+        Q5_1Block,
+        24
+    );
+    opaque_block!(
+        /// Q8_0 block: 32 weights in 34 bytes.
+        Q8_0Block,
+        34
+    );
+    opaque_block!(
+        /// Q8_1 block: 32 weights in 36 bytes.
+        Q8_1Block,
+        36
+    );
+    opaque_block!(
+        /// Q2_K super-block: 256 weights in 84 bytes.
+        Q2_KBlock,
+        84
+    );
+    opaque_block!(
+        /// Q3_K super-block: 256 weights in 110 bytes.
+        Q3_KBlock,
+        110
+    );
+    opaque_block!(
+        /// Q4_K super-block: 256 weights in 144 bytes.
+        Q4_KBlock,
+        144
+    );
+    opaque_block!(
+        /// Q5_K super-block: 256 weights in 176 bytes.
+        Q5_KBlock,
+        176
+    );
+    opaque_block!(
+        /// Q6_K super-block: 256 weights in 210 bytes.
+        Q6_KBlock,
+        210
+    );
+    opaque_block!(
+        /// Q8_K super-block: 256 weights in 292 bytes.
+        Q8_KBlock,
+        292
+    );
+    opaque_block!(
+        /// IQ2_XXS super-block: 256 weights in 66 bytes.
+        IQ2_XXSBlock,
+        66
+    );
+    opaque_block!(
+        /// IQ2_XS super-block: 256 weights in 74 bytes.
+        IQ2_XSBlock,
+        74
+    );
+    opaque_block!(
+        /// IQ3_XXS super-block: 256 weights in 98 bytes.
+        IQ3_XXSBlock,
+        98
+    );
+    opaque_block!(
+        /// IQ1_S super-block: 256 weights in 50 bytes.
+        IQ1_SBlock,
+        50
+    );
+    opaque_block!(
+        /// IQ4_NL block: 32 weights in 18 bytes.
+        IQ4_NLBlock,
+        18
+    );
+    opaque_block!(
+        /// IQ3_S super-block: 256 weights in 110 bytes.
+        IQ3_SBlock,
+        110
+    );
+    opaque_block!(
+        /// IQ2_S super-block: 256 weights in 82 bytes.
+        IQ2_SBlock,
+        82
+    );
+    opaque_block!(
+        /// IQ4_XS super-block: 256 weights in 136 bytes.
+        IQ4_XSBlock,
+        136
+    );
+    opaque_block!(
+        /// IQ1_M super-block: 256 weights in 56 bytes.
+        IQ1_MBlock,
+        56
+    );
+    opaque_block!(
+        /// TQ1_0 block: 256 weights in 54 bytes.
+        TQ1_0Block,
+        54
+    );
+    opaque_block!(
+        /// TQ2_0 block: 256 weights in 66 bytes.
+        TQ2_0Block,
+        66
+    );
+    opaque_block!(
+        /// MXFP4 block: 32 weights in 17 bytes.
+        MXFP4Block,
+        17
+    );
+    opaque_block!(
+        /// NVFP4 block: 64 weights in 36 bytes.
+        NVFP4Block,
+        36
+    );
+    opaque_block!(
+        /// Q1_0 block: 128 weights in 18 bytes.
+        Q1_0Block,
+        18
+    );
+    opaque_block!(
+        /// Q2_0 block: 64 weights in 18 bytes.
+        Q2_0Block,
+        18
+    );
 }
 
 /// Quantization parameters for different tensor types

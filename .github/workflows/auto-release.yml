@@ -1,11 +1,12 @@
 name: Auto Release
 
 # Key on the head repository too, so a fork pull request whose branch is named
-# "main" cannot cancel a run for this repository's main. Dry runs get their own
-# group, so a rehearsal never cancels a real release.
+# "main" cannot enter this repository's main release queue. Dry runs get their
+# own group. Queue completions instead of cancelling an in-flight publication.
 concurrency:
   group: auto-release-${{ github.event.workflow_run.head_repository.id || github.repository_id }}-${{ github.event.workflow_run.head_branch || github.ref_name }}${{ inputs.dry_run && '-dry' || '' }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+  queue: max
 
 on:
   # workflow_run is needed to release only after CI and Security pass on main.
@@ -49,7 +50,7 @@ jobs:
       actions: write # Dispatches release.yml only when the GitHub App token is unavailable.
       contents: write # Release commit, annotated tag and GitHub Release.
       pull-requests: write # Required by the reusable workflow's release job.
-    uses: ThreatFlux/github_actions/.github/workflows/reusable-auto-release.yml@e0e9e823a404f6d0ae22797e8b19514c63c4ceaf # v0.7.9
+    uses: ThreatFlux/github_actions/.github/workflows/reusable-auto-release.yml@083cc6129d299d47baae1fd648afc8845b6122ce  # v0.7.10
     with:
       bump: ${{ github.event.inputs.version_bump || 'auto' }}
       # Only a manual dispatch can request a dry run; workflow_run always releases.
