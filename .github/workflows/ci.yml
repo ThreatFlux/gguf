@@ -161,6 +161,11 @@ jobs:
       - name: Check workspace at MSRV
         run: cargo check --locked --workspace --all-features
 
+      - name: Refresh the fixture's local package identity after release bumps
+        # Preserve the locked Rust 1.87 dependency baseline while accepting the
+        # current path package's version, including automatic release commits.
+        run: cargo update --workspace --manifest-path tests/msrv-consumer/Cargo.toml
+
       - name: Test alloc-only public API at MSRV
         run: CARGO_TARGET_DIR=target/msrv-consumer cargo test --locked --manifest-path tests/msrv-consumer/Cargo.toml
 
