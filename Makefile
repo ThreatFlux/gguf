@@ -94,4 +94,5 @@ help:
 .PHONY: msrv-check
 msrv-check:
 	$(CARGO) +1.87.0 check --locked --workspace --all-features
+	$(CARGO) +1.87.0 update --workspace --manifest-path tests/msrv-consumer/Cargo.toml
 	CARGO_TARGET_DIR="$(CURDIR)/target/msrv-consumer" $(CARGO) +1.87.0 test --locked --manifest-path tests/msrv-consumer/Cargo.toml
