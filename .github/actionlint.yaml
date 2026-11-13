@@ -1,6 +1,9 @@
 # actionlint 1.7.12 predates GitHub's documented queue: max syntax.
-# Scope only that parser diagnostic to the serialized publication caller.
+# Scope only that parser diagnostic to the serialized publication queues.
 paths:
   .github/workflows/auto-release.yml:
+    ignore:
+      - 'unexpected key "queue" for "concurrency" section'
+  .github/workflows/release.yml:
     ignore:
       - 'unexpected key "queue" for "concurrency" section'
