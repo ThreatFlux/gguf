@@ -22,8 +22,11 @@ permissions:
   contents: read
 
 concurrency:
-  # Queue every real publication; dry-run rehearsals use separate groups.
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('release-dry-run-{0}', github.ref) || 'release-publish' }}
+  # Queue actual tag publications; isolate dry runs and non-publishing refs.
+  group: >-
+    ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run &&
+    format('release-dry-run-{0}', github.ref) || startsWith(github.ref, 'refs/tags/') &&
+    'release-publish' || format('release-verify-{0}', github.ref) }}
   cancel-in-progress: false
   queue: max
 
