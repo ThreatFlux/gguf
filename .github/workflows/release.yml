@@ -22,10 +22,10 @@ permissions:
   contents: read
 
 concurrency:
-  # A dry run gets its own group, so a rehearsal never queues behind (or
-  # alongside) a real release of the same ref.
-  group: release-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '-dry-run' || '' }}
+  # Queue every real publication; dry-run rehearsals use separate groups.
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('release-dry-run-{0}', github.ref) || 'release-publish' }}
   cancel-in-progress: false
+  queue: max
 
 env:
   RUSTUP_TOOLCHAIN: 1.100.0
