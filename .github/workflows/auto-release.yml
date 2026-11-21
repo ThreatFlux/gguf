@@ -55,6 +55,7 @@ jobs:
       bump: ${{ github.event.inputs.version_bump || 'auto' }}
       # Only a manual dispatch can request a dry run; workflow_run always releases.
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+      create-pr: true
       required-workflows: ci.yml,security.yml
       # The threatflux-automation App pushes the tag, which starts release.yml
       # through its `push: tags` trigger; the reusable workflow then skips this

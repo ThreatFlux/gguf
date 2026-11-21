@@ -17,7 +17,9 @@ package named `gguf` is not owned by this project.
   SBOMs for both packages) are attached only after the registry publication
   succeeds or the version is confirmed to be on crates.io already.
 - `release.yml` never changes a manifest, commits to `main`, or creates a tag.
-  Version commits and tags come from `auto-release.yml` or a maintainer.
+  `auto-release.yml` proposes version commits by pull request. It creates the
+  release tag after the bump merges and passes CI and Security on `main`. A
+  maintainer can also prepare a release pull request and create the tag.
 - GitHub release notes come from `CHANGELOG.md`: the `## [<version>]` section,
   or the `## [Unreleased]` section of the tagged commit when the changelog does
   not name the version yet, followed by GitHub's pull-request list since the
@@ -58,9 +60,12 @@ on personnel or ownership changes.
 It calls the ThreatFlux reusable auto-release workflow, which reads the
 Conventional Commit subjects since the last tag: `feat:` and `fix:` (or a
 breaking change) cut a release, while `ci:`, `build:`, `chore:`, `docs:` and
-`test:` do not. A release writes the version commit, the annotated `v<version>`
-tag and the GitHub release as the `threatflux-automation` GitHub App, so the
-tag push starts `release.yml` by itself. The reusable workflow's notes list
+`test:` do not. The `threatflux-automation` GitHub App opens or refreshes a
+version-bump pull request from `automation/release`. The pull request must pass
+the usual checks and owner review before it can merge. After `CI` and `Security`
+pass on the merged commit on `main`, the App creates the annotated
+`v<version>` tag and GitHub release. The tag push starts `release.yml`.
+The reusable workflow's notes list
 only `feat:`, `fix:` and breaking commits, so `release.yml` replaces them with
 the changelog-based notes described above. If the App credentials are not
 available, the reusable workflow falls back to the workflow token and dispatches
@@ -75,7 +80,7 @@ gh workflow run auto-release.yml --ref main --field dry_run=true
 Add user-visible changes to the `## [Unreleased]` section of `CHANGELOG.md` in
 the pull request that makes them. To release changes that carry only `ci:`,
 `build:`, `chore:`, `docs:` or `test:` subjects, such as dependency updates,
-request a patch release explicitly:
+request a patch release proposal explicitly:
 
 ```bash
 gh workflow run auto-release.yml --ref main --field version_bump=patch
