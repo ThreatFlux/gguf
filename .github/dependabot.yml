@@ -1,31 +1,22 @@
 version: 2
-updates:
-  - package-ecosystem: cargo
-    directory: /
+
+multi-ecosystem-groups:
+  nightly-dependencies:
     schedule:
       interval: cron
       cronjob: "0 5 * * *"
       timezone: Etc/UTC
+    commit-message:
+      prefix: "chore(deps)"
     open-pull-requests-limit: 10
-    rebase-strategy: auto
-    groups:
-      rust-minor-and-patch:
-        update-types:
-          - minor
-          - patch
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    patterns: ["*"]
+    multi-ecosystem-group: nightly-dependencies
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: cron
-      cronjob: "30 5 * * *"
-      timezone: Etc/UTC
-    open-pull-requests-limit: 10
-    rebase-strategy: auto
-    groups:
-      github-actions:
-        patterns:
-          - "*"
-        update-types:
-          - minor
-          - patch
+    patterns: ["*"]
+    multi-ecosystem-group: nightly-dependencies
