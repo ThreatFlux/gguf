@@ -22,7 +22,7 @@ path = "src/main.rs"
 gguf-rs-lib = { path = "..", features = ["std"] }
 
 # CLI framework
-clap = { version = "4.6.7", features = ["derive", "color"] }
+clap = { version = "4.6.9", features = ["derive", "color"] }
 
 # Error handling
 anyhow = "1.0.104"
@@ -31,13 +31,13 @@ anyhow = "1.0.104"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
 serde_yaml = { package = "yaml_serde", version = "0.10.7" }
-toml = "1.2.1+spec-1.1.0"
+toml = "1.2.2"
 
 # Terminal and output formatting
 colored = { version = "3.1.1", optional = true }
 
 # File I/O and path handling
-walkdir = "2.5.0"
+walkdir = "2.5.1"
 
 [features]
 default = ["color"]
