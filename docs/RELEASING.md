@@ -46,7 +46,9 @@ to create, move, or delete release tags. Configure the release maintainer or
 approved automation as the narrow bypass needed to create a new tag.
 
 Protect `main` with required pull requests, review, and the stable CI and
-security checks. Set the repository's default workflow token permission to
+security checks. Require release proposal branches to be up to date before
+merging. If `main` moves, let the automation App refresh its version proposal
+from the new base before reviewing it. Set the default workflow token permission to
 read-only and prevent GitHub Actions from approving pull requests; individual
 jobs in this repository declare the narrower write permissions they need.
 
@@ -65,11 +67,11 @@ version-bump pull request from `automation/release`. The pull request must pass
 the usual checks and owner review before it can merge. After `CI` and `Security`
 pass on the merged commit on `main`, the App creates the annotated
 `v<version>` tag and GitHub release. The tag push starts `release.yml`.
-The reusable workflow's notes list
-only `feat:`, `fix:` and breaking commits, so `release.yml` replaces them with
-the changelog-based notes described above. If the App credentials are not
-available, the reusable workflow falls back to the workflow token and dispatches
-`release.yml` for the new tag instead.
+The reusable workflow's notes list only `feat:`, `fix:` and breaking commits.
+`release.yml` replaces them with the changelog-based notes described above.
+For release writes, configure both `TF_AUTOMATION_APP_ID` and
+`TF_AUTOMATION_APP_PRIVATE_KEY` for the App installation. If either is missing,
+restore the configuration and rerun the failed release workflow.
 
 Rehearse the next automatic release without writing anything:
 
@@ -121,8 +123,11 @@ gh workflow run auto-release.yml --ref main --field version_bump=patch
 
 ## Create the release
 
-From the verified commit on `main`, create one annotated or signed tag and push
-it normally:
+After the release-preparation pull request merges and the automatic release
+workflow finishes, check for the tag with `git ls-remote --tags origin
+refs/tags/v0.3.2`, substituting the intended version. If the tag exists, follow
+its release workflow. If the lookup succeeds with no matching tag, create one
+annotated or signed tag from the verified commit on `main` and push it normally:
 
 ```bash
 git switch main

@@ -40,12 +40,29 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  check-release-credentials:
+    name: Check release credentials
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require the automation App for release writes
+        if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
+        env:
+          HAS_APP_ID: ${{ vars.TF_AUTOMATION_APP_ID != '' }}
+          HAS_APP_PRIVATE_KEY: ${{ secrets.TF_AUTOMATION_APP_PRIVATE_KEY != '' }}
+        run: |
+          if [[ "$HAS_APP_ID" != true || "$HAS_APP_PRIVATE_KEY" != true ]]; then
+            echo '::error::Configure TF_AUTOMATION_APP_ID and TF_AUTOMATION_APP_PRIVATE_KEY for reviewed release proposals.'
+            exit 1
+          fi
+
+  release:
+    needs: check-release-credentials
     permissions:
       actions: write # Dispatches release.yml only when the GitHub App token is unavailable.
       contents: write # Release commit, annotated tag and GitHub Release.
