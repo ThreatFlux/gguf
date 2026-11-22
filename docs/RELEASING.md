@@ -65,8 +65,12 @@ breaking change) cut a release, while `ci:`, `build:`, `chore:`, `docs:` and
 `test:` do not. The `threatflux-automation` GitHub App opens or refreshes a
 version-bump pull request from `automation/release`. The pull request must pass
 the usual checks and owner review before it can merge. After `CI` and `Security`
-pass on the merged commit on `main`, the App creates the annotated
-`v<version>` tag and GitHub release. The tag push starts `release.yml`.
+pass on the exact merge commit on `main`, the App creates the annotated
+`v<version>` tag and GitHub release. The automatic workflow verifies that the
+merge preserves the proposal tree and its tested base. If a later commit reaches
+`main` first, automatic tagging stops. Use the manual path below to tag the
+verified release commit if it passed the required checks. The tag push starts
+`release.yml`.
 The reusable workflow's notes list only `feat:`, `fix:` and breaking commits.
 `release.yml` replaces them with the changelog-based notes described above.
 For release writes, configure both `TF_AUTOMATION_APP_ID` and
@@ -127,12 +131,15 @@ After the release-preparation pull request merges and the automatic release
 workflow finishes, check for the tag with `git ls-remote --tags origin
 refs/tags/v0.3.2`, substituting the intended version. If the tag exists, follow
 its release workflow. If the lookup succeeds with no matching tag, create one
-annotated or signed tag from the verified commit on `main` and push it normally:
+annotated or signed tag at the verified release commit. First confirm the
+version accounts for all changes since the previous tag and the release commit
+passed CI and Security. Set `RELEASE_SHA` to its full SHA even if `main` has
+advanced since the release checks passed:
 
 ```bash
 git switch main
 git pull --ff-only
-git tag -s v0.3.2 -m "Release v0.3.2"
+git tag -s v0.3.2 -m "Release v0.3.2" "$RELEASE_SHA"
 git push origin v0.3.2
 ```
 

@@ -40,15 +40,18 @@ permissions:
   contents: read
 
 jobs:
-  check-release-credentials:
-    name: Check release credentials
+  check-release-write:
+    name: Check release write prerequisites
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Require the automation App for release writes
         if: ${{ github.event_name != 'workflow_dispatch' || !inputs.dry_run }}
@@ -60,9 +63,21 @@ jobs:
             echo '::error::Configure TF_AUTOMATION_APP_ID and TF_AUTOMATION_APP_PRIVATE_KEY for reviewed release proposals.'
             exit 1
           fi
+      - name: Checkout the workflow source
+        if: ${{ github.event_name == 'workflow_run' || (github.ref == 'refs/heads/main' && !inputs.dry_run) }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact release proposal provenance
+        if: ${{ github.event_name == 'workflow_run' || (github.ref == 'refs/heads/main' && !inputs.dry_run) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: python3 scripts/check_release_provenance.py "$GITHUB_REPOSITORY" "$TARGET_SHA"
 
   release:
-    needs: check-release-credentials
+    needs: check-release-write
     permissions:
       actions: write # Dispatches release.yml only when the GitHub App token is unavailable.
       contents: write # Release commit, annotated tag and GitHub Release.
