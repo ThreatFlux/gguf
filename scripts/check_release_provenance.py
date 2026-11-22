@@ -2,16 +2,44 @@
 
 import argparse
 import base64
+import http.client
 import json
-import subprocess
+import os
+import re
 import tomllib
 
 
-def github_api(path, *, paginate=False):
-    command = ["gh", "api", path]
-    if paginate:
-        command.extend(("--paginate", "--slurp"))
-    return json.loads(subprocess.check_output(command, text=True, encoding="utf-8"))
+def github_api(path):
+    connection = http.client.HTTPSConnection("api.github.com", timeout=30)
+    try:
+        connection.request(
+            "GET",
+            f"/{path}",
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                "User-Agent": "gguf-release-provenance",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
+        )
+        with connection.getresponse() as response:
+            if response.status != 200:
+                raise RuntimeError(f"GitHub returned HTTP {response.status} for {path}")
+            return json.load(response)
+    finally:
+        connection.close()
+
+
+def is_release_proposal(pr, repository, target_sha):
+    return (
+        pr["merged_at"] is not None
+        and pr["merge_commit_sha"] == target_sha
+        and pr["user"]["login"] == "threatflux-automation[bot]"
+        and pr["head"]["ref"] == "automation/release"
+        and (pr["head"].get("repo") or {}).get("full_name") == repository
+        and pr["base"]["ref"] == "main"
+        and pr["base"]["repo"]["full_name"] == repository
+    )
 
 
 def verify_release_provenance(repository, target_sha):
@@ -25,18 +53,11 @@ def verify_release_provenance(repository, target_sha):
     if any(tag["ref"] == tag_ref for tag in tag_matches):
         return
 
-    pages = github_api(f"{repo}/commits/{target_sha}/pulls?per_page=100", paginate=True)
+    associated_prs = github_api(f"{repo}/commits/{target_sha}/pulls?per_page=100")
+    if len(associated_prs) >= 100:
+        raise ValueError("The associated pull request list may be incomplete.")
     proposals = [
-        pr
-        for page in pages
-        for pr in page
-        if pr["merged_at"]
-        and pr["merge_commit_sha"] == target_sha
-        and pr["user"]["login"] == "threatflux-automation[bot]"
-        and pr["head"]["ref"] == "automation/release"
-        and (pr["head"].get("repo") or {}).get("full_name") == repository
-        and pr["base"]["ref"] == "main"
-        and pr["base"]["repo"]["full_name"] == repository
+        pr for pr in associated_prs if is_release_proposal(pr, repository, target_sha)
     ]
     if len(proposals) != 1:
         raise ValueError(
@@ -65,6 +86,8 @@ def main():
     parser.add_argument("repository")
     parser.add_argument("target_sha")
     args = parser.parse_args()
+    if not re.fullmatch(r"[0-9a-f]{40}", args.target_sha):
+        parser.error("target_sha must be a full commit SHA")
     verify_release_provenance(args.repository, args.target_sha)
 
 

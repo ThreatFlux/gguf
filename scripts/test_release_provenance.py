@@ -27,7 +27,7 @@ class ReleaseProvenanceTest(unittest.TestCase):
                 "content": base64.b64encode(manifest).decode(),
             },
             f"{self.repo}/git/matching-refs/tags/v0.3.10": [],
-            f"{self.repo}/commits/target/pulls?per_page=100": [[self.pr]],
+            f"{self.repo}/commits/target/pulls?per_page=100": [self.pr],
             f"{self.repo}/commits/target": self.commit("base", "tree", "proposal"),
             f"{self.repo}/commits/proposal": self.commit("base", "tree"),
         }
@@ -42,7 +42,7 @@ class ReleaseProvenanceTest(unittest.TestCase):
     def validate(self):
         with patch(
             "check_release_provenance.github_api",
-            side_effect=lambda path, **_: self.responses[path],
+            side_effect=self.responses.__getitem__,
         ):
             verify_release_provenance(self.repository, "target")
 
