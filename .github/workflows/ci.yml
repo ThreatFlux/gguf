@@ -74,6 +74,9 @@ jobs:
       - name: Check documentation contracts
         run: python3 scripts/check_docs.py
 
+      - name: Test release provenance guard
+        run: python3 -m unittest discover -s scripts -p test_release_provenance.py
+
       - name: Check package contents
         run: bash scripts/check_package.sh
 

@@ -17,7 +17,9 @@ package named `gguf` is not owned by this project.
   SBOMs for both packages) are attached only after the registry publication
   succeeds or the version is confirmed to be on crates.io already.
 - `release.yml` never changes a manifest, commits to `main`, or creates a tag.
-  Version commits and tags come from `auto-release.yml` or a maintainer.
+  `auto-release.yml` proposes version commits by pull request. It creates the
+  release tag after the bump merges and passes CI and Security on `main`. A
+  maintainer can also prepare a release pull request and create the tag.
 - GitHub release notes come from `CHANGELOG.md`: the `## [<version>]` section,
   or the `## [Unreleased]` section of the tagged commit when the changelog does
   not name the version yet, followed by GitHub's pull-request list since the
@@ -44,7 +46,9 @@ to create, move, or delete release tags. Configure the release maintainer or
 approved automation as the narrow bypass needed to create a new tag.
 
 Protect `main` with required pull requests, review, and the stable CI and
-security checks. Set the repository's default workflow token permission to
+security checks. Require release proposal branches to be up to date before
+merging. If `main` moves, let the automation App refresh its version proposal
+from the new base before reviewing it. Set the default workflow token permission to
 read-only and prevent GitHub Actions from approving pull requests; individual
 jobs in this repository declare the narrower write permissions they need.
 
@@ -58,13 +62,20 @@ on personnel or ownership changes.
 It calls the ThreatFlux reusable auto-release workflow, which reads the
 Conventional Commit subjects since the last tag: `feat:` and `fix:` (or a
 breaking change) cut a release, while `ci:`, `build:`, `chore:`, `docs:` and
-`test:` do not. A release writes the version commit, the annotated `v<version>`
-tag and the GitHub release as the `threatflux-automation` GitHub App, so the
-tag push starts `release.yml` by itself. The reusable workflow's notes list
-only `feat:`, `fix:` and breaking commits, so `release.yml` replaces them with
-the changelog-based notes described above. If the App credentials are not
-available, the reusable workflow falls back to the workflow token and dispatches
-`release.yml` for the new tag instead.
+`test:` do not. The `threatflux-automation` GitHub App opens or refreshes a
+version-bump pull request from `automation/release`. The pull request must pass
+the usual checks and owner review before it can merge. After `CI` and `Security`
+pass on the exact merge commit on `main`, the App creates the annotated
+`v<version>` tag and GitHub release. The automatic workflow verifies that the
+merge preserves the proposal tree and its tested base. If a later commit reaches
+`main` first, automatic tagging stops. Use the manual path below to tag the
+verified release commit if it passed the required checks. The tag push starts
+`release.yml`.
+The reusable workflow's notes list only `feat:`, `fix:` and breaking commits.
+`release.yml` replaces them with the changelog-based notes described above.
+For release writes, configure both `TF_AUTOMATION_APP_ID` and
+`TF_AUTOMATION_APP_PRIVATE_KEY` for the App installation. If either is missing,
+restore the configuration and rerun the failed release workflow.
 
 Rehearse the next automatic release without writing anything:
 
@@ -75,7 +86,7 @@ gh workflow run auto-release.yml --ref main --field dry_run=true
 Add user-visible changes to the `## [Unreleased]` section of `CHANGELOG.md` in
 the pull request that makes them. To release changes that carry only `ci:`,
 `build:`, `chore:`, `docs:` or `test:` subjects, such as dependency updates,
-request a patch release explicitly:
+request a patch release proposal explicitly:
 
 ```bash
 gh workflow run auto-release.yml --ref main --field version_bump=patch
@@ -116,13 +127,19 @@ gh workflow run auto-release.yml --ref main --field version_bump=patch
 
 ## Create the release
 
-From the verified commit on `main`, create one annotated or signed tag and push
-it normally:
+After the release-preparation pull request merges and the automatic release
+workflow finishes, check for the tag with `git ls-remote --tags origin
+refs/tags/v0.3.2`, substituting the intended version. If the tag exists, follow
+its release workflow. If the lookup succeeds with no matching tag, create one
+annotated or signed tag at the verified release commit. First confirm the
+version accounts for all changes since the previous tag and the release commit
+passed CI and Security. Set `RELEASE_SHA` to its full SHA even if `main` has
+advanced since the release checks passed:
 
 ```bash
 git switch main
 git pull --ff-only
-git tag -s v0.3.2 -m "Release v0.3.2"
+git tag -s v0.3.2 -m "Release v0.3.2" "$RELEASE_SHA"
 git push origin v0.3.2
 ```
 
