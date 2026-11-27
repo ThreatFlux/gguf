@@ -42,6 +42,18 @@ def is_release_proposal(pr, repository, target_sha):
     )
 
 
+def proposal_parents_match_base(parents, base_sha):
+    """Accept a first proposal [base] or a refreshed proposal [base, previous].
+
+    Since github_actions v0.7.15 the release runtime keeps the previous proposal
+    as a second parent when it refreshes automation/release, so the branch update
+    is a fast-forward. The tree is still built from the tested base alone.
+    """
+    if not parents or parents[0] != base_sha:
+        return False
+    return len(parents) == 1 or (len(parents) == 2 and parents[1] != base_sha)
+
+
 def verify_release_provenance(repository, target_sha):
     repo = f"repos/{repository}"
     manifest = github_api(f"{repo}/contents/Cargo.toml?ref={target_sha}")
@@ -72,7 +84,10 @@ def verify_release_provenance(repository, target_sha):
     # preserve its tree and its first-parent base, including for squash merges.
     if (
         not target["parents"]
-        or [parent["sha"] for parent in proposal["parents"]] != [target["parents"][0]["sha"]]
+        or not proposal_parents_match_base(
+            [parent["sha"] for parent in proposal["parents"]],
+            target["parents"][0]["sha"],
+        )
         or proposal["commit"]["tree"]["sha"] != target["commit"]["tree"]["sha"]
     ):
         raise ValueError(
