@@ -58,6 +58,37 @@ class ReleaseProvenanceTest(unittest.TestCase):
         self.responses[f"{self.repo}/commits/target"] = self.commit("base", "tree")
         self.validate()
 
+    def test_refreshed_proposal_permits_merge_or_squash(self):
+        # v0.7.15 refreshes keep the previous proposal as a second parent.
+        self.responses[f"{self.repo}/commits/proposal"] = self.commit(
+            "base", "tree", "previous-proposal"
+        )
+        self.validate()
+        self.responses[f"{self.repo}/commits/target"] = self.commit("base", "tree")
+        self.validate()
+
+    def test_refreshed_proposal_on_stale_base_is_rejected(self):
+        self.responses[f"{self.repo}/commits/proposal"] = self.commit(
+            "stale", "tree", "base"
+        )
+        with self.assertRaisesRegex(ValueError, "tested base"):
+            self.validate()
+
+    def test_refreshed_proposal_with_extra_parents_is_rejected(self):
+        self.responses[f"{self.repo}/commits/proposal"] = self.commit(
+            "base", "tree", "previous-proposal", "unrelated"
+        )
+        with self.assertRaisesRegex(ValueError, "tested base"):
+            self.validate()
+
+    def test_refreshed_proposal_with_changed_tree_is_rejected(self):
+        self.responses[f"{self.repo}/commits/proposal"] = self.commit(
+            "base", "tree", "previous-proposal"
+        )
+        self.responses[f"{self.repo}/commits/target"] = self.commit("base", "changed")
+        with self.assertRaisesRegex(ValueError, "proposed tree"):
+            self.validate()
+
     def test_later_main_commit_cannot_inherit_untagged_version(self):
         self.pr["merge_commit_sha"] = "earlier"
         self.responses[f"{self.repo}/git/matching-refs/tags/v0.3.10"] = [
